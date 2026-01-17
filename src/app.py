@@ -1,122 +1,112 @@
 """
-F1 Design Comparison Dashboard
+F1 Design Setup Comparison Tool
 
-Professional engineering visualization for F1-style vehicle design comparison.
-Styled after real F1 engineering workstations - light mode, data-focused, clean.
+Professional engineering dashboard for comparing vehicle design configurations
+at Spa-Francorchamps. Users define setups, run simulation, watch animated comparison.
 
-Consumes precomputed ML predictions only. NOT a race simulator.
+Core Workflow:
+1. User configures 2-4 design setups with different parameters
+2. Click "Run Comparison" to compute predictions
+3. Watch animated dots progress around the track at predicted speeds
+4. Analyze results in comprehensive data tables below
 """
 
 import streamlit as st
 import plotly.graph_objects as go
-import plotly.express as px
 import pandas as pd
 import numpy as np
 import json
 import os
-import subprocess
 import sys
+import subprocess
+import time
 from typing import Dict, List, Tuple, Optional
+from PIL import Image
+import base64
+from io import BytesIO
 
-# Page configuration - Professional light theme
+# Page config - collapsed sidebar, wide layout
 st.set_page_config(
-    page_title="F1 Design Analysis | Spa-Francorchamps",
-    page_icon="📊",
+    page_title="F1 Design Comparison",
+    page_icon="🏁",
     layout="wide",
-    initial_sidebar_state="expanded"
+    initial_sidebar_state="collapsed"
 )
 
-# Professional CSS styling
+# Professional CSS
 st.markdown("""
 <style>
-    /* Light mode professional theme */
     .stApp {
-        background-color: #f8f9fa;
+        background-color: #fafafa;
     }
     
-    /* Header styling */
-    .main-header {
-        background: linear-gradient(90deg, #1e1e1e 0%, #2d2d2d 100%);
+    /* Top bar styling */
+    .top-bar {
+        background: #1a1a1a;
         color: white;
-        padding: 20px 30px;
+        padding: 15px 25px;
         border-radius: 8px;
         margin-bottom: 20px;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
     }
     
-    .main-header h1 {
+    .top-bar h1 {
         margin: 0;
-        font-size: 24px;
+        font-size: 20px;
         font-weight: 600;
-        letter-spacing: -0.5px;
     }
     
-    .main-header p {
-        margin: 5px 0 0 0;
-        color: #a0a0a0;
-        font-size: 13px;
+    .top-bar .subtitle {
+        color: #888;
+        font-size: 12px;
     }
     
-    /* Metric cards */
-    .metric-card {
+    /* Setup card */
+    .setup-card {
         background: white;
         border: 1px solid #e0e0e0;
         border-radius: 8px;
-        padding: 16px 20px;
+        padding: 15px;
+        margin-bottom: 15px;
+    }
+    
+    .setup-header {
+        display: flex;
+        align-items: center;
         margin-bottom: 12px;
-        box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+        padding-bottom: 10px;
+        border-bottom: 1px solid #f0f0f0;
     }
     
-    .metric-card .label {
-        font-size: 11px;
-        color: #666;
-        text-transform: uppercase;
-        letter-spacing: 0.5px;
-        margin-bottom: 4px;
+    .setup-color {
+        width: 16px;
+        height: 16px;
+        border-radius: 3px;
+        margin-right: 10px;
     }
     
-    .metric-card .value {
-        font-size: 28px;
-        font-weight: 700;
-        color: #1a1a1a;
-        font-family: 'Monaco', 'Consolas', monospace;
-    }
-    
-    .metric-card .delta {
-        font-size: 13px;
-        font-weight: 500;
-        margin-top: 4px;
-    }
-    
-    .delta-positive { color: #dc3545; }
-    .delta-negative { color: #28a745; }
-    .delta-neutral { color: #666; }
-    
-    /* Section headers */
-    .section-header {
-        font-size: 14px;
+    .setup-name {
         font-weight: 600;
-        color: #333;
-        text-transform: uppercase;
-        letter-spacing: 0.8px;
-        padding-bottom: 8px;
-        border-bottom: 2px solid #e0e0e0;
-        margin: 20px 0 15px 0;
+        font-size: 14px;
     }
     
-    /* Data table styling */
-    .timing-grid {
+    /* Data table */
+    .results-table {
         background: white;
         border-radius: 8px;
         overflow: hidden;
         border: 1px solid #e0e0e0;
+        margin-top: 20px;
     }
     
-    .timing-grid table {
+    .results-table table {
         width: 100%;
         border-collapse: collapse;
     }
     
-    .timing-grid th {
+    .results-table th {
         background: #f5f5f5;
         padding: 12px 16px;
         text-align: left;
@@ -125,381 +115,310 @@ st.markdown("""
         text-transform: uppercase;
         letter-spacing: 0.5px;
         color: #666;
-        border-bottom: 1px solid #e0e0e0;
     }
     
-    .timing-grid td {
+    .results-table td {
         padding: 14px 16px;
-        font-size: 14px;
+        font-size: 13px;
         font-family: 'Monaco', 'Consolas', monospace;
-        border-bottom: 1px solid #f0f0f0;
+        border-top: 1px solid #f0f0f0;
     }
     
-    .timing-grid tr:last-child td {
-        border-bottom: none;
-    }
+    .fastest { color: #9b59b6; font-weight: 700; }
+    .slower { color: #e74c3c; }
+    .better { color: #27ae60; }
     
-    /* Design indicator */
-    .design-indicator {
-        display: inline-block;
-        width: 12px;
-        height: 12px;
-        border-radius: 2px;
-        margin-right: 8px;
-        vertical-align: middle;
-    }
-    
-    /* Fastest time highlight */
-    .fastest {
-        color: #9b59b6;
-        font-weight: 700;
-    }
-    
-    /* Sidebar styling */
-    .sidebar-section {
-        background: white;
-        border-radius: 8px;
-        padding: 16px;
-        margin-bottom: 16px;
-        border: 1px solid #e0e0e0;
-    }
-    
-    .sidebar-title {
-        font-size: 12px;
+    /* Section title */
+    .section-title {
+        font-size: 13px;
         font-weight: 600;
         color: #333;
         text-transform: uppercase;
-        letter-spacing: 0.5px;
-        margin-bottom: 12px;
+        letter-spacing: 0.8px;
+        margin: 25px 0 15px 0;
+        padding-bottom: 8px;
+        border-bottom: 2px solid #e0e0e0;
     }
     
-    /* Parameter display */
-    .param-row {
+    /* Track container */
+    .track-container {
+        background: white;
+        border-radius: 8px;
+        padding: 20px;
+        border: 1px solid #e0e0e0;
+        position: relative;
+    }
+    
+    /* Animation control */
+    .anim-control {
         display: flex;
-        justify-content: space-between;
-        padding: 6px 0;
-        border-bottom: 1px solid #f0f0f0;
-        font-size: 13px;
+        align-items: center;
+        gap: 15px;
+        padding: 15px;
+        background: #f5f5f5;
+        border-radius: 8px;
+        margin-bottom: 15px;
     }
     
-    .param-label {
-        color: #666;
-    }
-    
-    .param-value {
-        font-weight: 600;
-        font-family: 'Monaco', 'Consolas', monospace;
-    }
-    
-    /* Hide Streamlit branding */
+    /* Hide default streamlit elements */
     #MainMenu {visibility: hidden;}
     footer {visibility: hidden;}
     header {visibility: hidden;}
-    
-    /* Custom scrollbar */
-    ::-webkit-scrollbar {
-        width: 8px;
-        height: 8px;
-    }
-    
-    ::-webkit-scrollbar-track {
-        background: #f1f1f1;
-    }
-    
-    ::-webkit-scrollbar-thumb {
-        background: #c1c1c1;
-        border-radius: 4px;
-    }
 </style>
 """, unsafe_allow_html=True)
 
 # Constants
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-DATA_PATH = os.path.join(PROJECT_ROOT, "outputs", "streamlit_data.json")
+SPA_IMAGE_PATH = os.path.join(PROJECT_ROOT, "Spa.png")
 
-# Professional F1 team colors
-DESIGN_COLORS = [
-    "#E10600",  # Red (Ferrari-inspired)
-    "#00A19C",  # Teal (Mercedes-inspired)  
-    "#0600EF",  # Blue (Red Bull-inspired)
-    "#FF8000",  # Orange (McLaren-inspired)
-    "#006F62",  # Green (Aston Martin-inspired)
+# Setup colors (F1 team inspired)
+SETUP_COLORS = [
+    {"name": "Red", "hex": "#E10600"},
+    {"name": "Teal", "hex": "#00A19C"},
+    {"name": "Blue", "hex": "#0600EF"},
+    {"name": "Orange", "hex": "#FF8000"},
 ]
 
-# Import accurate Spa track coordinates
-try:
-    from src.spa_track_viz import (
-        SPA_TRACK_POINTS, CORNER_LABELS, 
-        get_position_at_progress, get_track_coordinates
-    )
-except ModuleNotFoundError:
-    from spa_track_viz import (
-        SPA_TRACK_POINTS, CORNER_LABELS, 
-        get_position_at_progress, get_track_coordinates
-    )
+# Default parameter ranges
+PARAM_DEFAULTS = {
+    "m": {"min": 740, "max": 800, "default": 770, "step": 5, "unit": "kg", "label": "Mass"},
+    "C_L": {"min": 0.80, "max": 1.30, "default": 1.0, "step": 0.05, "unit": "", "label": "Aero Load (C_L)"},
+    "C_D": {"min": 0.85, "max": 1.20, "default": 1.0, "step": 0.05, "unit": "", "label": "Aero Drag (C_D)"},
+    "alpha_elec": {"min": 0.35, "max": 0.60, "default": 0.47, "step": 0.01, "unit": "", "label": "Electric Fraction"},
+    "E_deploy": {"min": 5.0, "max": 9.0, "default": 7.0, "step": 0.5, "unit": "MJ", "label": "Energy Deploy"},
+    "gamma_cool": {"min": 0.8, "max": 1.4, "default": 1.0, "step": 0.05, "unit": "", "label": "Cooling Factor"},
+}
 
 
-def create_track_map(
-    selected_designs: List[Dict],
-    animation_progress: float = 1.0
+def load_spa_image() -> Optional[str]:
+    """Load Spa track image as base64 for display."""
+    if not os.path.exists(SPA_IMAGE_PATH):
+        return None
+    try:
+        img = Image.open(SPA_IMAGE_PATH)
+        buffered = BytesIO()
+        img.save(buffered, format="PNG")
+        return base64.b64encode(buffered.getvalue()).decode()
+    except Exception:
+        return None
+
+
+def run_physics_simulation(setups: List[Dict]) -> List[Dict]:
+    """
+    Run physics simulation for given setups.
+    Returns list of result dicts with lap_time, energy, thermal, segments.
+    """
+    results = []
+    
+    # Import physics model
+    sys.path.insert(0, PROJECT_ROOT)
+    try:
+        from src.data.physics_model import PhysicsModel
+        from src.data.track import SPA_TRACK
+    except ImportError:
+        st.error("Could not import physics model")
+        return results
+    
+    for setup in setups:
+        params = setup["params"]
+        model = PhysicsModel(params)
+        lap_time, energy_used, thermal_risk, segment_results = model.simulate_lap()
+        
+        # Calculate sector times
+        sectors = {1: 0, 2: 0, 3: 0}
+        for seg in segment_results:
+            segment = SPA_TRACK.segments[seg.segment_id]
+            sectors[segment.sector] += seg.time
+        
+        results.append({
+            "name": setup["name"],
+            "color": setup["color"],
+            "params": params,
+            "lap_time": lap_time,
+            "energy_used": energy_used,
+            "thermal_risk": thermal_risk,
+            "sector_1": sectors[1],
+            "sector_2": sectors[2],
+            "sector_3": sectors[3],
+            "segments": segment_results,
+        })
+    
+    return results
+
+
+def create_track_animation(
+    results: List[Dict],
+    progress: float,
+    spa_image_b64: Optional[str] = None
 ) -> go.Figure:
     """
-    Create accurate Spa-Francorchamps track map with design markers.
-    
-    Args:
-        selected_designs: List of design prediction dicts
-        animation_progress: 0-1 progress through the lap
-        
-    Returns:
-        Plotly Figure with track and markers
+    Create track visualization with animated markers.
+    Uses Spa.png as background if available.
     """
     fig = go.Figure()
     
-    # Get track coordinates
-    track_x, track_y = get_track_coordinates()
-    
-    # Draw track outline (thick gray)
-    fig.add_trace(go.Scatter(
-        x=track_x, y=track_y,
-        mode='lines',
-        line=dict(color='#d0d0d0', width=16),
-        hoverinfo='skip',
-        showlegend=False
-    ))
-    
-    # Draw track racing line (thin dark)
-    fig.add_trace(go.Scatter(
-        x=track_x, y=track_y,
-        mode='lines',
-        line=dict(color='#666666', width=2),
-        hoverinfo='skip',
-        showlegend=False
-    ))
-    
-    # Add corner labels
-    for corner in CORNER_LABELS:
-        fig.add_annotation(
-            x=corner['pos'][0],
-            y=corner['pos'][1],
-            text=corner['name'],
-            showarrow=False,
-            font=dict(size=9, color='#666'),
-            xanchor='left' if corner['anchor'] == 'left' else 'right' if corner['anchor'] == 'right' else 'center',
-            yanchor='top' if corner['anchor'] == 'top' else 'bottom' if corner['anchor'] == 'bottom' else 'middle'
+    # Add Spa track image as background
+    if spa_image_b64:
+        fig.add_layout_image(
+            dict(
+                source=f"data:image/png;base64,{spa_image_b64}",
+                xref="x", yref="y",
+                x=0, y=1,
+                sizex=1, sizey=1,
+                sizing="stretch",
+                opacity=1.0,
+                layer="below"
+            )
         )
     
-    # Add sector markers
-    sector_markers = [
-        {'pos': (0.42, 0.28), 'label': 'S1'},  # After Raidillon
-        {'pos': (0.29, 0.72), 'label': 'S2'},  # After Fagnes  
-        {'pos': (0.92, 0.25), 'label': 'S3/F'},  # Finish
+    # Track coordinates for marker positions (normalized 0-1)
+    # Matched to Spa.png image orientation:
+    # - Start/finish at right side with La Source hairpin
+    # - Track flows counter-clockwise
+    # - Eau Rouge/Raidillon climbing left
+    # - Long Kemmel straight going left-down
+    # - Forest section at bottom-left
+    # - Returns via right side
+    TRACK_PATH = [
+        # Start/Finish → La Source (top right)
+        (0.88, 0.15), (0.82, 0.12), (0.76, 0.12), (0.72, 0.15), (0.70, 0.18),
+        # La Source exit → Eau Rouge (going down and left)
+        (0.68, 0.22), (0.65, 0.28), (0.60, 0.35),
+        # Eau Rouge → Raidillon (sharp left climb)
+        (0.55, 0.40), (0.48, 0.42), (0.42, 0.38),
+        # Raidillon top → Kemmel Straight (long straight going down-left)
+        (0.38, 0.32), (0.32, 0.28), (0.25, 0.25), (0.18, 0.24), (0.10, 0.26),
+        # Les Combes (bottom left corner area)
+        (0.06, 0.30), (0.05, 0.38), (0.08, 0.45),
+        # Rivage → Pouhon (climbing back up through forest)
+        (0.12, 0.52), (0.18, 0.60), (0.25, 0.68),
+        # Fagnes → Campus → Stavelot (middle section going right)
+        (0.32, 0.75), (0.42, 0.80), (0.52, 0.82),
+        # Blanchimont → Bus Stop (back toward start)
+        (0.62, 0.78), (0.72, 0.70), (0.80, 0.58),
+        # Final approach to Start/Finish
+        (0.85, 0.45), (0.88, 0.32), (0.88, 0.20),
+        # Complete lap
+        (0.88, 0.15),
     ]
     
-    for marker in sector_markers:
-        fig.add_annotation(
-            x=marker['pos'][0],
-            y=marker['pos'][1],
-            text=marker['label'],
-            showarrow=False,
-            font=dict(size=10, color='white', family='Arial Black'),
-            bgcolor='#333',
-            borderpad=3
-        )
-    
-    # Add design markers based on animation progress
-    for i, design in enumerate(selected_designs):
-        # Calculate position based on cumulative time
-        total_time = design['total_lap_time']
-        current_time = animation_progress * total_time
+    # Add marker for each setup
+    for result in results:
+        # Calculate position based on time progress
+        total_time = result["lap_time"]
+        current_time = progress * total_time
         
-        # Find which segment and progress we're in
+        # Find position along track
         cumulative_time = 0
         segment_idx = 0
-        segment_progress = 0
+        seg_progress = 0
         
-        for seg in design['segments']:
-            if cumulative_time + seg['time_in_segment'] >= current_time:
-                time_into_segment = current_time - cumulative_time
-                segment_progress = time_into_segment / seg['time_in_segment']
+        for seg in result["segments"]:
+            if cumulative_time + seg.time >= current_time:
+                seg_progress = (current_time - cumulative_time) / seg.time
                 break
-            cumulative_time += seg['time_in_segment']
+            cumulative_time += seg.time
             segment_idx += 1
         
-        # Map segment to overall lap progress
-        lap_progress = (segment_idx + segment_progress) / len(design['segments'])
-        lap_progress = min(lap_progress, 0.999)  # Prevent overflow
+        # Map to track coordinates
+        n_track_pts = len(TRACK_PATH)
+        overall_progress = (segment_idx + seg_progress) / len(result["segments"])
+        pt_idx = int(overall_progress * (n_track_pts - 1))
+        pt_idx = min(pt_idx, n_track_pts - 2)
         
-        # Get position from track
-        pos_x, pos_y = get_position_at_progress(lap_progress)
+        t = (overall_progress * (n_track_pts - 1)) - pt_idx
+        x1, y1 = TRACK_PATH[pt_idx]
+        x2, y2 = TRACK_PATH[pt_idx + 1]
         
-        color = DESIGN_COLORS[i % len(DESIGN_COLORS)]
+        x = x1 + t * (x2 - x1)
+        y = y1 + t * (y2 - y1)
         
         # Add marker
         fig.add_trace(go.Scatter(
-            x=[pos_x], y=[pos_y],
-            mode='markers',
+            x=[x], y=[1 - y],  # Flip Y for image coordinates
+            mode='markers+text',
             marker=dict(
-                size=16, 
-                color=color,
-                symbol='circle',
-                line=dict(color='white', width=2)
+                size=20,
+                color=result["color"],
+                line=dict(color='white', width=3),
+                symbol='circle'
             ),
-            name=design['design_name'],
+            text=[result["name"][:3]],
+            textposition='bottom center',
+            textfont=dict(size=10, color='#333'),
+            name=result["name"],
+            showlegend=True,
             hovertemplate=(
-                f"<b>{design['design_name']}</b><br>"
-                f"Progress: {animation_progress*100:.0f}%<br>"
+                f"<b>{result['name']}</b><br>"
                 f"Time: {current_time:.2f}s<br>"
+                f"Lap: {result['lap_time']:.2f}s<br>"
                 "<extra></extra>"
             )
         ))
     
-    # Layout for professional look
     fig.update_layout(
-        title=dict(
-            text="Circuit: Spa-Francorchamps",
-            font=dict(size=14, color='#333'),
-            x=0.5
-        ),
-        xaxis=dict(
-            showgrid=False, 
-            zeroline=False, 
-            showticklabels=False,
-            range=[-0.05, 1.05],
-            scaleanchor='y'
-        ),
-        yaxis=dict(
-            showgrid=False, 
-            zeroline=False, 
-            showticklabels=False,
-            range=[-0.02, 0.85]
-        ),
+        xaxis=dict(range=[0, 1], showgrid=False, zeroline=False, showticklabels=False),
+        yaxis=dict(range=[0, 1], showgrid=False, zeroline=False, showticklabels=False, scaleanchor='x'),
         plot_bgcolor='white',
         paper_bgcolor='white',
-        showlegend=True,
+        margin=dict(l=0, r=0, t=0, b=0),
+        height=500,
         legend=dict(
             orientation='h',
-            yanchor='bottom',
-            y=-0.1,
+            yanchor='top',
+            y=-0.02,
             xanchor='center',
-            x=0.5,
-            font=dict(size=10)
-        ),
-        margin=dict(l=10, r=10, t=40, b=40),
-        height=450
+            x=0.5
+        )
     )
     
     return fig
 
 
-@st.cache_data
-def load_data(path: str = DATA_PATH) -> Optional[Dict]:
-    """Load precomputed prediction data."""
-    if not os.path.exists(path):
-        return None
-    with open(path, 'r') as f:
-        return json.load(f)
-
-
-def format_time(seconds: float) -> str:
-    """Format time in F1 style (mm:ss.sss)."""
-    mins = int(seconds // 60)
-    secs = seconds % 60
-    if mins > 0:
-        return f"{mins}:{secs:06.3f}"
-    return f"{secs:.3f}"
-
-
-def format_delta(delta: float) -> Tuple[str, str]:
-    """Format delta time with sign and CSS class."""
-    if abs(delta) < 0.001:
-        return "—", "delta-neutral"
-    elif delta > 0:
-        return f"+{delta:.3f}", "delta-positive"
-    else:
-        return f"{delta:.3f}", "delta-negative"
-
-
-def render_header():
-    """Render professional header."""
-    st.markdown("""
-    <div class="main-header">
-        <h1>📊 Vehicle Design Analysis</h1>
-        <p>Circuit: Spa-Francorchamps | 7.004 km | 2026 Hybrid Regulations</p>
-    </div>
-    """, unsafe_allow_html=True)
-
-
-def render_timing_grid(selected_designs: List[Dict], track_data: Dict) -> None:
-    """Render professional F1-style timing grid."""
+def render_results_table(results: List[Dict]) -> None:
+    """Render comprehensive results table."""
+    if not results:
+        return
     
-    # Calculate sector times
-    data = []
-    for i, design in enumerate(selected_designs):
-        sectors = {'S1': 0, 'S2': 0, 'S3': 0}
-        for seg in design['segments']:
-            if seg['sector'] == 1:
-                sectors['S1'] += seg['time_in_segment']
-            elif seg['sector'] == 2:
-                sectors['S2'] += seg['time_in_segment']
-            else:
-                sectors['S3'] += seg['time_in_segment']
-        
-        data.append({
-            'idx': i,
-            'name': design['design_name'],
-            'S1': sectors['S1'],
-            'S2': sectors['S2'],
-            'S3': sectors['S3'],
-            'lap': design['total_lap_time'],
-            'energy': design['total_energy_used'],
-        })
+    # Find best values
+    min_lap = min(r["lap_time"] for r in results)
+    min_energy = min(r["energy_used"] for r in results)
     
-    # Find fastest times
-    if data:
-        min_s1 = min(d['S1'] for d in data)
-        min_s2 = min(d['S2'] for d in data)
-        min_s3 = min(d['S3'] for d in data)
-        min_lap = min(d['lap'] for d in data)
-    
-    # Build HTML table
-    html = '<div class="timing-grid"><table>'
+    html = '<div class="results-table"><table>'
     html += '''
     <tr>
         <th>Setup</th>
+        <th>Lap Time</th>
+        <th>Gap</th>
         <th>Sector 1</th>
         <th>Sector 2</th>
         <th>Sector 3</th>
-        <th>Lap Time</th>
-        <th>Gap</th>
         <th>Energy (MJ)</th>
+        <th>Thermal</th>
     </tr>
     '''
     
-    baseline_lap = data[0]['lap'] if data else 0
+    baseline_time = results[0]["lap_time"]
     
-    for d in sorted(data, key=lambda x: x['lap']):
-        color = DESIGN_COLORS[d['idx'] % len(DESIGN_COLORS)]
-        gap = d['lap'] - baseline_lap
-        gap_str, gap_class = format_delta(gap)
-        
-        # Highlight fastest sectors in purple
-        s1_class = 'fastest' if abs(d['S1'] - min_s1) < 0.001 else ''
-        s2_class = 'fastest' if abs(d['S2'] - min_s2) < 0.001 else ''
-        s3_class = 'fastest' if abs(d['S3'] - min_s3) < 0.001 else ''
-        lap_class = 'fastest' if abs(d['lap'] - min_lap) < 0.001 else ''
+    for r in sorted(results, key=lambda x: x["lap_time"]):
+        gap = r["lap_time"] - baseline_time
+        gap_str = f"+{gap:.3f}" if gap > 0 else f"{gap:.3f}" if gap < 0 else "—"
+        gap_class = "slower" if gap > 0 else "better" if gap < 0 else ""
+        lap_class = "fastest" if abs(r["lap_time"] - min_lap) < 0.001 else ""
         
         html += f'''
         <tr>
             <td>
-                <span class="design-indicator" style="background:{color}"></span>
-                {d['name']}
+                <span style="display:inline-block;width:12px;height:12px;background:{r["color"]};border-radius:2px;margin-right:8px;vertical-align:middle;"></span>
+                {r["name"]}
             </td>
-            <td class="{s1_class}">{d['S1']:.3f}</td>
-            <td class="{s2_class}">{d['S2']:.3f}</td>
-            <td class="{s3_class}">{d['S3']:.3f}</td>
-            <td class="{lap_class}">{format_time(d['lap'])}</td>
+            <td class="{lap_class}">{r["lap_time"]:.3f}s</td>
             <td class="{gap_class}">{gap_str}</td>
-            <td>{d['energy']:.2f}</td>
+            <td>{r["sector_1"]:.3f}s</td>
+            <td>{r["sector_2"]:.3f}s</td>
+            <td>{r["sector_3"]:.3f}s</td>
+            <td>{r["energy_used"]:.2f}</td>
+            <td>{r["thermal_risk"]:.3f}</td>
         </tr>
         '''
     
@@ -507,369 +426,196 @@ def render_timing_grid(selected_designs: List[Dict], track_data: Dict) -> None:
     st.markdown(html, unsafe_allow_html=True)
 
 
-def render_summary_metrics(selected_designs: List[Dict]) -> None:
-    """Render summary metrics in professional card format."""
-    if not selected_designs:
+def render_setup_params_table(results: List[Dict]) -> None:
+    """Render setup parameters comparison table."""
+    if not results:
         return
     
-    # Find fastest
-    fastest = min(selected_designs, key=lambda x: x['total_lap_time'])
-    most_efficient = min(selected_designs, key=lambda x: x['total_energy_used'])
+    html = '<div class="results-table"><table>'
+    html += '''
+    <tr>
+        <th>Setup</th>
+        <th>Mass (kg)</th>
+        <th>C_L</th>
+        <th>C_D</th>
+        <th>L/D Ratio</th>
+        <th>Electric %</th>
+        <th>Energy (MJ)</th>
+        <th>Cooling</th>
+    </tr>
+    '''
     
-    cols = st.columns(4)
-    
-    with cols[0]:
-        st.markdown(f"""
-        <div class="metric-card">
-            <div class="label">Fastest Lap</div>
-            <div class="value">{format_time(fastest['total_lap_time'])}</div>
-            <div class="delta delta-neutral">{fastest['design_name']}</div>
-        </div>
-        """, unsafe_allow_html=True)
-    
-    with cols[1]:
-        spread = max(d['total_lap_time'] for d in selected_designs) - fastest['total_lap_time']
-        st.markdown(f"""
-        <div class="metric-card">
-            <div class="label">Performance Spread</div>
-            <div class="value">{spread:.3f}s</div>
-            <div class="delta delta-neutral">Fastest to Slowest</div>
-        </div>
-        """, unsafe_allow_html=True)
-    
-    with cols[2]:
-        st.markdown(f"""
-        <div class="metric-card">
-            <div class="label">Most Efficient</div>
-            <div class="value">{most_efficient['total_energy_used']:.2f} MJ</div>
-            <div class="delta delta-neutral">{most_efficient['design_name']}</div>
-        </div>
-        """, unsafe_allow_html=True)
-    
-    with cols[3]:
-        avg_energy = np.mean([d['total_energy_used'] for d in selected_designs])
-        st.markdown(f"""
-        <div class="metric-card">
-            <div class="label">Avg Energy Deploy</div>
-            <div class="value">{avg_energy:.2f} MJ</div>
-            <div class="delta delta-neutral">Across {len(selected_designs)} setups</div>
-        </div>
-        """, unsafe_allow_html=True)
-
-
-def create_speed_trace(selected_designs: List[Dict]) -> go.Figure:
-    """Create professional speed trace plot."""
-    fig = go.Figure()
-    
-    for i, design in enumerate(selected_designs):
-        distances = [0]
-        speeds = [design['segments'][0]['entry_speed']]
+    for r in results:
+        p = r["params"]
+        ld_ratio = p["C_L"] / p["C_D"] if p["C_D"] > 0 else 0
         
-        for seg in design['segments']:
-            distances.append(seg['cumulative_distance'] + seg['segment_length'])
-            speeds.append(seg['exit_speed'])
-        
-        color = DESIGN_COLORS[i % len(DESIGN_COLORS)]
-        
-        fig.add_trace(go.Scatter(
-            x=distances,
-            y=speeds,
-            mode='lines',
-            name=design['design_name'],
-            line=dict(color=color, width=1.5),
-        ))
+        html += f'''
+        <tr>
+            <td>
+                <span style="display:inline-block;width:12px;height:12px;background:{r["color"]};border-radius:2px;margin-right:8px;vertical-align:middle;"></span>
+                {r["name"]}
+            </td>
+            <td>{p["m"]:.0f}</td>
+            <td>{p["C_L"]:.2f}</td>
+            <td>{p["C_D"]:.2f}</td>
+            <td>{ld_ratio:.2f}</td>
+            <td>{p["alpha_elec"]*100:.0f}%</td>
+            <td>{p["E_deploy"]:.1f}</td>
+            <td>{p["gamma_cool"]:.2f}</td>
+        </tr>
+        '''
     
-    fig.update_layout(
-        title=dict(text="Speed Trace", font=dict(size=14, color='#333')),
-        xaxis=dict(
-            title="Distance (m)",
-            gridcolor='#e0e0e0',
-            linecolor='#ccc',
-            tickfont=dict(size=10)
-        ),
-        yaxis=dict(
-            title="Speed (km/h)",
-            gridcolor='#e0e0e0',
-            linecolor='#ccc',
-            tickfont=dict(size=10)
-        ),
-        plot_bgcolor='white',
-        paper_bgcolor='white',
-        legend=dict(
-            orientation='h',
-            yanchor='bottom',
-            y=1.02,
-            xanchor='left',
-            x=0,
-            font=dict(size=10)
-        ),
-        margin=dict(l=50, r=20, t=50, b=50),
-        height=300
-    )
-    
-    return fig
-
-
-def create_energy_trace(selected_designs: List[Dict]) -> go.Figure:
-    """Create cumulative energy deployment plot."""
-    fig = go.Figure()
-    
-    for i, design in enumerate(selected_designs):
-        distances = [seg['cumulative_distance'] for seg in design['segments']]
-        energies = [seg['cumulative_energy'] for seg in design['segments']]
-        
-        color = DESIGN_COLORS[i % len(DESIGN_COLORS)]
-        
-        fig.add_trace(go.Scatter(
-            x=distances,
-            y=energies,
-            mode='lines',
-            name=design['design_name'],
-            line=dict(color=color, width=1.5),
-        ))
-    
-    fig.update_layout(
-        title=dict(text="Energy Deployment", font=dict(size=14, color='#333')),
-        xaxis=dict(
-            title="Distance (m)",
-            gridcolor='#e0e0e0',
-            linecolor='#ccc',
-            tickfont=dict(size=10)
-        ),
-        yaxis=dict(
-            title="Cumulative Energy (MJ)",
-            gridcolor='#e0e0e0',
-            linecolor='#ccc',
-            tickfont=dict(size=10)
-        ),
-        plot_bgcolor='white',
-        paper_bgcolor='white',
-        legend=dict(
-            orientation='h',
-            yanchor='bottom',
-            y=1.02,
-            xanchor='left',
-            x=0,
-            font=dict(size=10)
-        ),
-        margin=dict(l=50, r=20, t=50, b=50),
-        height=300
-    )
-    
-    return fig
-
-
-def create_delta_trace(selected_designs: List[Dict]) -> go.Figure:
-    """Create time delta plot vs baseline."""
-    if len(selected_designs) < 2:
-        return None
-    
-    fig = go.Figure()
-    baseline = selected_designs[0]
-    baseline_times = {seg['segment_id']: seg['cumulative_time'] for seg in baseline['segments']}
-    
-    for i, design in enumerate(selected_designs[1:], 1):
-        distances = []
-        deltas = []
-        
-        for seg in design['segments']:
-            distances.append(seg['cumulative_distance'])
-            baseline_time = baseline_times.get(seg['segment_id'], seg['cumulative_time'])
-            deltas.append(seg['cumulative_time'] - baseline_time)
-        
-        color = DESIGN_COLORS[i % len(DESIGN_COLORS)]
-        
-        fig.add_trace(go.Scatter(
-            x=distances,
-            y=deltas,
-            mode='lines',
-            name=f"vs {baseline['design_name']}",
-            line=dict(color=color, width=1.5),
-            fill='tozeroy',
-            fillcolor=f"rgba({int(color[1:3], 16)}, {int(color[3:5], 16)}, {int(color[5:7], 16)}, 0.1)"
-        ))
-    
-    # Zero reference line
-    fig.add_hline(y=0, line_dash='dash', line_color='#999', line_width=1)
-    
-    fig.update_layout(
-        title=dict(text=f"Time Delta vs {baseline['design_name']}", font=dict(size=14, color='#333')),
-        xaxis=dict(
-            title="Distance (m)",
-            gridcolor='#e0e0e0',
-            linecolor='#ccc',
-            tickfont=dict(size=10)
-        ),
-        yaxis=dict(
-            title="Delta (s)",
-            gridcolor='#e0e0e0',
-            linecolor='#ccc',
-            tickfont=dict(size=10),
-            zeroline=True,
-            zerolinecolor='#666'
-        ),
-        plot_bgcolor='white',
-        paper_bgcolor='white',
-        legend=dict(
-            orientation='h',
-            yanchor='bottom',
-            y=1.02,
-            xanchor='left',
-            x=0,
-            font=dict(size=10)
-        ),
-        margin=dict(l=50, r=20, t=50, b=50),
-        height=250
-    )
-    
-    return fig
-
-
-def render_design_params(design: Dict) -> None:
-    """Render design parameters in sidebar."""
-    params = design['design_params']
-    
-    st.markdown(f"""
-    <div style="font-weight: 600; margin-bottom: 8px;">{design['design_name']}</div>
-    <div class="param-row">
-        <span class="param-label">Mass</span>
-        <span class="param-value">{params['m']:.0f} kg</span>
-    </div>
-    <div class="param-row">
-        <span class="param-label">Aero Load (C_L)</span>
-        <span class="param-value">{params['C_L']:.2f}</span>
-    </div>
-    <div class="param-row">
-        <span class="param-label">Aero Drag (C_D)</span>
-        <span class="param-value">{params['C_D']:.2f}</span>
-    </div>
-    <div class="param-row">
-        <span class="param-label">Electric Frac.</span>
-        <span class="param-value">{params['alpha_elec']:.0%}</span>
-    </div>
-    <div class="param-row">
-        <span class="param-label">Energy Deploy</span>
-        <span class="param-value">{params['E_deploy']:.1f} MJ</span>
-    </div>
-    <div class="param-row" style="border-bottom: none;">
-        <span class="param-label">Cooling Factor</span>
-        <span class="param-value">{params['gamma_cool']:.2f}</span>
-    </div>
-    """, unsafe_allow_html=True)
+    html += '</table></div>'
+    st.markdown(html, unsafe_allow_html=True)
 
 
 def main():
     """Main application."""
     
-    # Load data
-    data = load_data()
-    
-    if data is None:
-        st.error("⚠️ No prediction data found. Run `python -m src.analysis.segment_predictor` first.")
-        st.stop()
-    
-    track_data = data['track']
-    predictions = data['predictions']
-    
     # Header
-    render_header()
+    st.markdown("""
+    <div class="top-bar">
+        <div>
+            <h1>🏁 F1 Design Setup Comparison</h1>
+            <span class="subtitle">Spa-Francorchamps | 7.004 km | 2026 Hybrid Regulations</span>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
     
-    # Sidebar
-    with st.sidebar:
-        st.markdown('<div class="sidebar-title">Setup Selection</div>', unsafe_allow_html=True)
+    # Initialize session state
+    if "setups" not in st.session_state:
+        st.session_state.setups = [
+            {"name": "Baseline", "params": {k: v["default"] for k, v in PARAM_DEFAULTS.items()}},
+            {"name": "Low Drag", "params": {"m": 755, "C_L": 0.85, "C_D": 0.88, "alpha_elec": 0.52, "E_deploy": 8.0, "gamma_cool": 0.9}},
+        ]
+    if "results" not in st.session_state:
+        st.session_state.results = None
+    if "animation_progress" not in st.session_state:
+        st.session_state.animation_progress = 0.0
+    
+    # Setup configuration section
+    st.markdown('<div class="section-title">Design Setups</div>', unsafe_allow_html=True)
+    
+    # Setup columns
+    n_setups = len(st.session_state.setups)
+    cols = st.columns(min(n_setups + 1, 5))
+    
+    for i, setup in enumerate(st.session_state.setups):
+        with cols[i]:
+            color = SETUP_COLORS[i % len(SETUP_COLORS)]
+            
+            st.markdown(f"""
+            <div class="setup-card">
+                <div class="setup-header">
+                    <div class="setup-color" style="background:{color['hex']}"></div>
+                    <span class="setup-name">Setup {i+1}</span>
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
+            
+            # Name input
+            name = st.text_input("Name", value=setup["name"], key=f"name_{i}", label_visibility="collapsed")
+            st.session_state.setups[i]["name"] = name
+            
+            # Parameter sliders
+            for param, config in PARAM_DEFAULTS.items():
+                val = st.slider(
+                    config["label"],
+                    min_value=float(config["min"]),
+                    max_value=float(config["max"]),
+                    value=float(setup["params"].get(param, config["default"])),
+                    step=float(config["step"]),
+                    key=f"{param}_{i}"
+                )
+                st.session_state.setups[i]["params"][param] = val
+    
+    # Add setup button
+    if n_setups < 4:
+        with cols[n_setups]:
+            if st.button("➕ Add Setup", use_container_width=True):
+                st.session_state.setups.append({
+                    "name": f"Setup {n_setups + 1}",
+                    "params": {k: v["default"] for k, v in PARAM_DEFAULTS.items()}
+                })
+                st.rerun()
+    
+    # Run button
+    col1, col2, col3 = st.columns([1, 2, 1])
+    with col2:
+        if st.button("🏁 Run Comparison", type="primary", use_container_width=True):
+            with st.spinner("Running physics simulation..."):
+                # Add colors to setups
+                setups_with_colors = []
+                for i, setup in enumerate(st.session_state.setups):
+                    setups_with_colors.append({
+                        **setup,
+                        "color": SETUP_COLORS[i % len(SETUP_COLORS)]["hex"]
+                    })
+                
+                st.session_state.results = run_physics_simulation(setups_with_colors)
+                st.session_state.animation_progress = 0.0
+            st.rerun()
+    
+    # Results section
+    if st.session_state.results:
+        results = st.session_state.results
         
-        design_names = [p['design_name'] for p in predictions]
-        selected_names = st.multiselect(
-            "Compare Designs",
-            options=design_names,
-            default=design_names[:3],
-            max_selections=5,
-            label_visibility="collapsed"
+        # Track animation
+        st.markdown('<div class="section-title">Lap Animation</div>', unsafe_allow_html=True)
+        
+        # Animation controls
+        animation_progress = st.slider(
+            "Progress",
+            min_value=0.0,
+            max_value=1.0,
+            value=st.session_state.animation_progress,
+            step=0.01,
+            format="%.0f%%",
+            key="progress_slider"
         )
+        st.session_state.animation_progress = animation_progress
         
-        if len(selected_names) < 2:
-            st.warning("Select at least 2 designs")
-            st.stop()
+        # Show current time
+        if results:
+            fastest = min(results, key=lambda x: x["lap_time"])
+            current_time = animation_progress * fastest["lap_time"]
+            st.caption(f"Reference time: {current_time:.1f}s / {fastest['lap_time']:.1f}s")
         
-        selected_designs = [p for p in predictions if p['design_name'] in selected_names]
-        
-        st.markdown("---")
-        st.markdown('<div class="sidebar-title">Design Parameters</div>', unsafe_allow_html=True)
-        
-        for design in selected_designs:
-            with st.expander(design['design_name'], expanded=False):
-                render_design_params(design)
-        
-        st.markdown("---")
-        st.markdown('<div class="sidebar-title">Analysis Options</div>', unsafe_allow_html=True)
-        
-        show_track = st.checkbox("Track Map", value=True)
-        show_speed = st.checkbox("Speed Trace", value=True)
-        show_energy = st.checkbox("Energy Deployment", value=True)
-        show_delta = st.checkbox("Time Delta", value=True)
-        
-        # Animation control
-        if show_track:
-            st.markdown("---")
-            st.markdown('<div class="sidebar-title">Lap Animation</div>', unsafe_allow_html=True)
-            
-            animation_progress = st.slider(
-                "Lap Progress",
-                min_value=0.0,
-                max_value=1.0,
-                value=1.0,
-                step=0.01,
-                format="%.0f%%",
-                label_visibility="collapsed"
-            )
-            
-            # Show current lap time for reference
-            if selected_designs:
-                fastest = min(selected_designs, key=lambda x: x['total_lap_time'])
-                current_time = animation_progress * fastest['total_lap_time']
-                st.caption(f"Reference: {current_time:.1f}s / {fastest['total_lap_time']:.1f}s")
-        else:
-            animation_progress = 1.0
-    
-    # Main content
-    # Summary metrics
-    render_summary_metrics(selected_designs)
-    
-    # Track map with animation
-    if show_track:
-        st.markdown('<div class="section-header">Circuit Position</div>', unsafe_allow_html=True)
-        track_fig = create_track_map(selected_designs, animation_progress)
+        # Track visualization
+        spa_image = load_spa_image()
+        track_fig = create_track_animation(results, animation_progress, spa_image)
         st.plotly_chart(track_fig, use_container_width=True)
-    
-    # Timing grid
-    st.markdown('<div class="section-header">Lap Time Analysis</div>', unsafe_allow_html=True)
-    render_timing_grid(selected_designs, track_data)
-    
-    # Plots
-    if show_speed or show_energy:
-        st.markdown('<div class="section-header">Telemetry Analysis</div>', unsafe_allow_html=True)
         
-        col1, col2 = st.columns(2)
+        # Results tables
+        st.markdown('<div class="section-title">Lap Time Results</div>', unsafe_allow_html=True)
+        render_results_table(results)
         
-        if show_speed:
-            with col1:
-                fig = create_speed_trace(selected_designs)
-                st.plotly_chart(fig, use_container_width=True)
+        st.markdown('<div class="section-title">Setup Parameters</div>', unsafe_allow_html=True)
+        render_setup_params_table(results)
         
-        if show_energy:
-            with col2:
-                fig = create_energy_trace(selected_designs)
-                st.plotly_chart(fig, use_container_width=True)
-    
-    if show_delta and len(selected_designs) >= 2:
-        fig = create_delta_trace(selected_designs)
-        if fig:
-            st.plotly_chart(fig, use_container_width=True)
+        # Key insights
+        st.markdown('<div class="section-title">Analysis</div>', unsafe_allow_html=True)
+        
+        fastest = min(results, key=lambda x: x["lap_time"])
+        slowest = max(results, key=lambda x: x["lap_time"])
+        most_efficient = min(results, key=lambda x: x["energy_used"])
+        
+        col1, col2, col3 = st.columns(3)
+        
+        with col1:
+            st.metric("Fastest Lap", f"{fastest['lap_time']:.3f}s", delta=fastest['name'])
+        
+        with col2:
+            spread = slowest["lap_time"] - fastest["lap_time"]
+            st.metric("Performance Spread", f"{spread:.3f}s", delta=f"{fastest['name']} → {slowest['name']}")
+        
+        with col3:
+            st.metric("Most Efficient", f"{most_efficient['energy_used']:.2f} MJ", delta=most_efficient['name'])
     
     # Footer
     st.markdown("""
     <div style="text-align: center; color: #999; font-size: 11px; margin-top: 40px; padding-top: 20px; border-top: 1px solid #e0e0e0;">
-        F1 Design Trade-Space Analysis | ML-Predicted Performance | Physics-Informed Synthetic Data
+        F1 Design Trade-Space Analysis | Physics-Informed Simulation | ML Surrogate Models
     </div>
     """, unsafe_allow_html=True)
 
