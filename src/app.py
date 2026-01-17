@@ -226,6 +226,170 @@ DESIGN_COLORS = [
     "#006F62",  # Green (Aston Martin-inspired)
 ]
 
+# Import accurate Spa track coordinates
+try:
+    from src.spa_track_viz import (
+        SPA_TRACK_POINTS, CORNER_LABELS, 
+        get_position_at_progress, get_track_coordinates
+    )
+except ModuleNotFoundError:
+    from spa_track_viz import (
+        SPA_TRACK_POINTS, CORNER_LABELS, 
+        get_position_at_progress, get_track_coordinates
+    )
+
+
+def create_track_map(
+    selected_designs: List[Dict],
+    animation_progress: float = 1.0
+) -> go.Figure:
+    """
+    Create accurate Spa-Francorchamps track map with design markers.
+    
+    Args:
+        selected_designs: List of design prediction dicts
+        animation_progress: 0-1 progress through the lap
+        
+    Returns:
+        Plotly Figure with track and markers
+    """
+    fig = go.Figure()
+    
+    # Get track coordinates
+    track_x, track_y = get_track_coordinates()
+    
+    # Draw track outline (thick gray)
+    fig.add_trace(go.Scatter(
+        x=track_x, y=track_y,
+        mode='lines',
+        line=dict(color='#d0d0d0', width=16),
+        hoverinfo='skip',
+        showlegend=False
+    ))
+    
+    # Draw track racing line (thin dark)
+    fig.add_trace(go.Scatter(
+        x=track_x, y=track_y,
+        mode='lines',
+        line=dict(color='#666666', width=2),
+        hoverinfo='skip',
+        showlegend=False
+    ))
+    
+    # Add corner labels
+    for corner in CORNER_LABELS:
+        fig.add_annotation(
+            x=corner['pos'][0],
+            y=corner['pos'][1],
+            text=corner['name'],
+            showarrow=False,
+            font=dict(size=9, color='#666'),
+            xanchor='left' if corner['anchor'] == 'left' else 'right' if corner['anchor'] == 'right' else 'center',
+            yanchor='top' if corner['anchor'] == 'top' else 'bottom' if corner['anchor'] == 'bottom' else 'middle'
+        )
+    
+    # Add sector markers
+    sector_markers = [
+        {'pos': (0.42, 0.28), 'label': 'S1'},  # After Raidillon
+        {'pos': (0.29, 0.72), 'label': 'S2'},  # After Fagnes  
+        {'pos': (0.92, 0.25), 'label': 'S3/F'},  # Finish
+    ]
+    
+    for marker in sector_markers:
+        fig.add_annotation(
+            x=marker['pos'][0],
+            y=marker['pos'][1],
+            text=marker['label'],
+            showarrow=False,
+            font=dict(size=10, color='white', family='Arial Black'),
+            bgcolor='#333',
+            borderpad=3
+        )
+    
+    # Add design markers based on animation progress
+    for i, design in enumerate(selected_designs):
+        # Calculate position based on cumulative time
+        total_time = design['total_lap_time']
+        current_time = animation_progress * total_time
+        
+        # Find which segment and progress we're in
+        cumulative_time = 0
+        segment_idx = 0
+        segment_progress = 0
+        
+        for seg in design['segments']:
+            if cumulative_time + seg['time_in_segment'] >= current_time:
+                time_into_segment = current_time - cumulative_time
+                segment_progress = time_into_segment / seg['time_in_segment']
+                break
+            cumulative_time += seg['time_in_segment']
+            segment_idx += 1
+        
+        # Map segment to overall lap progress
+        lap_progress = (segment_idx + segment_progress) / len(design['segments'])
+        lap_progress = min(lap_progress, 0.999)  # Prevent overflow
+        
+        # Get position from track
+        pos_x, pos_y = get_position_at_progress(lap_progress)
+        
+        color = DESIGN_COLORS[i % len(DESIGN_COLORS)]
+        
+        # Add marker
+        fig.add_trace(go.Scatter(
+            x=[pos_x], y=[pos_y],
+            mode='markers',
+            marker=dict(
+                size=16, 
+                color=color,
+                symbol='circle',
+                line=dict(color='white', width=2)
+            ),
+            name=design['design_name'],
+            hovertemplate=(
+                f"<b>{design['design_name']}</b><br>"
+                f"Progress: {animation_progress*100:.0f}%<br>"
+                f"Time: {current_time:.2f}s<br>"
+                "<extra></extra>"
+            )
+        ))
+    
+    # Layout for professional look
+    fig.update_layout(
+        title=dict(
+            text="Circuit: Spa-Francorchamps",
+            font=dict(size=14, color='#333'),
+            x=0.5
+        ),
+        xaxis=dict(
+            showgrid=False, 
+            zeroline=False, 
+            showticklabels=False,
+            range=[-0.05, 1.05],
+            scaleanchor='y'
+        ),
+        yaxis=dict(
+            showgrid=False, 
+            zeroline=False, 
+            showticklabels=False,
+            range=[-0.02, 0.85]
+        ),
+        plot_bgcolor='white',
+        paper_bgcolor='white',
+        showlegend=True,
+        legend=dict(
+            orientation='h',
+            yanchor='bottom',
+            y=-0.1,
+            xanchor='center',
+            x=0.5,
+            font=dict(size=10)
+        ),
+        margin=dict(l=10, r=10, t=40, b=40),
+        height=450
+    )
+    
+    return fig
+
 
 @st.cache_data
 def load_data(path: str = DATA_PATH) -> Optional[Dict]:
@@ -639,13 +803,43 @@ def main():
         st.markdown("---")
         st.markdown('<div class="sidebar-title">Analysis Options</div>', unsafe_allow_html=True)
         
+        show_track = st.checkbox("Track Map", value=True)
         show_speed = st.checkbox("Speed Trace", value=True)
         show_energy = st.checkbox("Energy Deployment", value=True)
         show_delta = st.checkbox("Time Delta", value=True)
+        
+        # Animation control
+        if show_track:
+            st.markdown("---")
+            st.markdown('<div class="sidebar-title">Lap Animation</div>', unsafe_allow_html=True)
+            
+            animation_progress = st.slider(
+                "Lap Progress",
+                min_value=0.0,
+                max_value=1.0,
+                value=1.0,
+                step=0.01,
+                format="%.0f%%",
+                label_visibility="collapsed"
+            )
+            
+            # Show current lap time for reference
+            if selected_designs:
+                fastest = min(selected_designs, key=lambda x: x['total_lap_time'])
+                current_time = animation_progress * fastest['total_lap_time']
+                st.caption(f"Reference: {current_time:.1f}s / {fastest['total_lap_time']:.1f}s")
+        else:
+            animation_progress = 1.0
     
     # Main content
     # Summary metrics
     render_summary_metrics(selected_designs)
+    
+    # Track map with animation
+    if show_track:
+        st.markdown('<div class="section-header">Circuit Position</div>', unsafe_allow_html=True)
+        track_fig = create_track_map(selected_designs, animation_progress)
+        st.plotly_chart(track_fig, use_container_width=True)
     
     # Timing grid
     st.markdown('<div class="section-header">Lap Time Analysis</div>', unsafe_allow_html=True)
