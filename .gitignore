@@ -1,0 +1,21 @@
+# Python
+__pycache__/
+*.pyc
+
+# Virtual environments
+venv/
+.env/
+
+# Data artifacts (optional – keep raw if you want)
+data/*.csv
+data/*.parquet
+
+# Model artifacts
+models/*.pkl
+models/*.joblib
+
+# Streamlit cache
+.streamlit/
+
+# OS
+.DS_Store
