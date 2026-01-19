@@ -1,9 +1,6 @@
 """
-Formula1 Analytics Dashboard
-Professional, research-grade setup-based analysis for track time prediction.
-
-Usage:
-    streamlit run streamlit_app/app.py
+F1 Spa-Francorchamps Analytics Dashboard
+Clean, readable, professional design
 """
 
 import streamlit as st
@@ -12,67 +9,33 @@ import pandas as pd
 from pathlib import Path
 import sys
 
-# Add parent to path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent))
 
-from inference import F1Predictor, Setup, DEFAULT_SETUP, PARAM_BOUNDS
+from inference import F1Predictor, Setup, PARAM_BOUNDS
 from analytics import (
-    compare_setups, create_summary_table, create_segment_table,
     check_monotonicity, compute_tradeoff_curve, compute_aero_efficiency_curve,
     get_model_stats
 )
 from plots import (
-    plot_sector_comparison, plot_segment_deltas, plot_cumulative_time,
-    plot_feature_importance, plot_partial_dependence, plot_pdp_grid,
-    plot_tradeoff, COLORS
+    plot_segment_deltas, plot_cumulative_time,
+    plot_feature_importance, plot_pdp_grid, plot_tradeoff
 )
 
 
 # ============================================================================
-# HELPER FUNCTIONS
+# UTILITIES
 # ============================================================================
 
 def format_laptime(seconds: float) -> str:
-    """Convert seconds to F1 lap time format (M:SS.sss)."""
     minutes = int(seconds // 60)
     remaining = seconds % 60
     return f"{minutes}:{remaining:06.3f}"
 
-
-def format_delta(delta_seconds: float) -> str:
-    """Format delta time with +/- prefix."""
-    if abs(delta_seconds) < 0.001:
+def format_delta(delta: float) -> str:
+    if abs(delta) < 0.001:
         return "-"
-    sign = "+" if delta_seconds > 0 else ""
-    return f"{sign}{delta_seconds:.3f}s"
-
-
-# ============================================================================
-# PRELOADED SETUPS
-# ============================================================================
-
-PRELOADED_SETUPS = {
-    "Balanced (Reference)": Setup(
-        mass=780.0, c_l=1.2, c_d=1.0, alpha_elec=0.15, e_deploy=3.0, gamma_cool=1.0
-    ),
-    "Low Drag (Monza Spec)": Setup(
-        mass=770.0, c_l=0.95, c_d=0.80, alpha_elec=0.18, e_deploy=3.2, gamma_cool=0.95
-    ),
-    "High Downforce (Monaco Spec)": Setup(
-        mass=785.0, c_l=1.45, c_d=1.25, alpha_elec=0.12, e_deploy=2.8, gamma_cool=1.05
-    ),
-    "Efficiency Focus": Setup(
-        mass=775.0, c_l=1.15, c_d=0.90, alpha_elec=0.20, e_deploy=3.5, gamma_cool=1.0
-    ),
-    "Power Priority": Setup(
-        mass=780.0, c_l=1.10, c_d=0.95, alpha_elec=0.25, e_deploy=3.8, gamma_cool=0.90
-    ),
-    "Conservative (Endurance)": Setup(
-        mass=790.0, c_l=1.25, c_d=1.05, alpha_elec=0.10, e_deploy=2.5, gamma_cool=1.15
-    ),
-    "Custom": None  # Placeholder for custom input
-}
+    return f"{'+' if delta > 0 else ''}{delta:.3f}s"
 
 
 # ============================================================================
@@ -80,202 +43,131 @@ PRELOADED_SETUPS = {
 # ============================================================================
 
 st.set_page_config(
-    page_title="F1 Track Analytics",
-    page_icon="",
+    page_title="F1 Spa Analytics",
     layout="wide",
     initial_sidebar_state="expanded"
 )
 
-# Professional Light Mode CSS
+# Minimal clean CSS - forces readable colors
 st.markdown("""
 <style>
-    /* Light mode background */
-    .main {background-color: #FFFFFF;}
-    .stApp {background-color: #FFFFFF;}
+    /* Force white background everywhere */
+    .stApp {background: white !important;}
+    section[data-testid="stSidebar"] {background: #f5f5f5 !important;}
     
-    /* Headers */
-    h1 {color: #1a1a2e !important; font-weight: 600 !important;}
-    h2 {color: #2d2d44 !important; border-bottom: 1px solid #e0e0e0; padding-bottom: 8px; font-weight: 500 !important;}
-    h3 {color: #1a1a2e !important; font-weight: 500 !important;}
-    
-    /* Metrics styling */
-    .stMetric {
-        background-color: #f8f9fa; 
-        padding: 16px; 
-        border-radius: 4px; 
-        border: 1px solid #e9ecef;
+    /* Force black text everywhere */
+    .stApp, .stApp p, .stApp span, .stApp label, .stApp div {
+        color: #111111 !important;
     }
-    .stMetric label {color: #6c757d !important; font-size: 12px !important;}
-    .stMetric [data-testid="stMetricValue"] {color: #1a1a2e !important; font-weight: 600 !important;}
+    
+    /* Headers - dark blue */
+    .stApp h1 {color: #0a2540 !important; font-size: 2.2rem !important;}
+    .stApp h2 {color: #0a2540 !important; font-size: 1.5rem !important; border-bottom: 2px solid #0a2540; padding-bottom: 8px;}
+    .stApp h3 {color: #0a2540 !important; font-size: 1.2rem !important;}
+    
+    /* Sidebar text */
+    section[data-testid="stSidebar"] p,
+    section[data-testid="stSidebar"] span,
+    section[data-testid="stSidebar"] label,
+    section[data-testid="stSidebar"] div {
+        color: #111111 !important;
+    }
+    
+    /* Metric cards */
+    [data-testid="stMetric"] {
+        background: #f8f9fa !important;
+        border: 1px solid #dee2e6 !important;
+        border-radius: 8px !important;
+        padding: 16px !important;
+    }
+    [data-testid="stMetricValue"] {
+        color: #0a2540 !important;
+        font-size: 2rem !important;
+        font-weight: 700 !important;
+    }
+    [data-testid="stMetricLabel"] {
+        color: #333333 !important;
+    }
+    [data-testid="stMetricDelta"] {
+        color: #333333 !important;
+    }
     
     /* Tables */
-    .stDataFrame {font-size: 13px;}
-    
-    /* Sidebar */
-    [data-testid="stSidebar"] {background-color: #f8f9fa;}
-    [data-testid="stSidebar"] h2 {border-bottom: 1px solid #dee2e6;}
+    .stDataFrame, table, th, td {
+        color: #111111 !important;
+    }
     
     /* Buttons */
     .stButton > button {
-        background-color: #1a1a2e;
-        color: white;
-        border: none;
-        font-weight: 500;
-    }
-    .stButton > button:hover {
-        background-color: #2d2d44;
-        color: white;
+        background: #0a2540 !important;
+        color: white !important;
+        border: none !important;
     }
     
     /* Expanders */
-    .streamlit-expanderHeader {
-        background-color: #f8f9fa;
-        border-radius: 4px;
+    details summary {
+        color: #111111 !important;
+        background: #f0f0f0 !important;
     }
     
-    /* Remove default padding */
-    .block-container {padding-top: 2rem;}
+    /* Slider labels */
+    .stSlider label, .stSelectbox label {
+        color: #111111 !important;
+    }
 </style>
 """, unsafe_allow_html=True)
 
 
 # ============================================================================
-# SESSION STATE
+# LOAD MODEL
 # ============================================================================
 
 if 'predictor' not in st.session_state:
     try:
         st.session_state.predictor = F1Predictor()
     except Exception as e:
-        st.error(f"Failed to load model: {e}")
+        st.error(f"Model loading failed: {e}")
         st.stop()
-
-if 'setups' not in st.session_state:
-    st.session_state.setups = []
 
 if 'predictions' not in st.session_state:
     st.session_state.predictions = []
+if 'setups' not in st.session_state:
+    st.session_state.setups = []
 
 
 # ============================================================================
-# SIDEBAR - SETUP DEFINITION
+# SIDEBAR
 # ============================================================================
 
 with st.sidebar:
-    st.markdown("## Setup Configuration")
-    st.markdown("---")
+    st.header("Vehicle Configuration")
     
-    # Number of setups
-    n_setups = st.selectbox(
-        "Number of Configurations",
-        options=[1, 2, 3, 4],
-        index=1,
-        help="Compare up to 4 different vehicle configurations"
-    )
+    n_setups = st.selectbox("Compare Setups", [1, 2, 3], index=1)
+    
+    st.divider()
     
     setups = []
-    
     for i in range(n_setups):
-        setup_label = "Baseline" if i == 0 else f"Comparison {i}"
+        label = "Baseline" if i == 0 else f"Setup {chr(65+i)}"
         
-        with st.expander(f"{setup_label}", expanded=(i < 2)):
+        with st.expander(label, expanded=True):
+            mass = st.slider("Mass (kg)", 700.0, 850.0, 780.0 + i*20, 5.0, key=f"m{i}")
             
-            # Preset selector
-            preset_options = list(PRELOADED_SETUPS.keys())
-            default_preset = 0 if i == 0 else min(i, len(preset_options)-2)
+            c1, c2 = st.columns(2)
+            c_l = c1.slider("C_L", 0.8, 1.5, 1.2, 0.05, key=f"cl{i}")
+            c_d = c2.slider("C_D", 0.7, 1.3, 1.0, 0.05, key=f"cd{i}")
             
-            selected_preset = st.selectbox(
-                "Preset Configuration",
-                options=preset_options,
-                index=default_preset,
-                key=f"preset_{i}"
-            )
+            alpha = st.slider("Electric Fraction", 0.0, 0.4, 0.15, 0.02, key=f"a{i}")
             
-            if selected_preset != "Custom" and PRELOADED_SETUPS[selected_preset]:
-                preset = PRELOADED_SETUPS[selected_preset]
-                default_mass = preset.mass
-                default_cl = preset.c_l
-                default_cd = preset.c_d
-                default_alpha = preset.alpha_elec
-                default_edeploy = preset.e_deploy
-                default_gamma = preset.gamma_cool
-            else:
-                default_mass = 780.0
-                default_cl = 1.2
-                default_cd = 1.0
-                default_alpha = 0.15
-                default_edeploy = 3.0
-                default_gamma = 1.0
+            c1, c2 = st.columns(2)
+            e_dep = c1.slider("E_deploy (MJ)", 2.0, 4.0, 3.0, 0.1, key=f"e{i}")
+            gamma = c2.slider("Cooling", 0.8, 1.2, 1.0, 0.05, key=f"g{i}")
             
-            st.markdown("**Parameters**")
-            
-            mass = st.slider(
-                "Mass (kg)",
-                min_value=700.0, max_value=850.0,
-                value=default_mass,
-                step=5.0,
-                key=f"mass_{i}"
-            )
-            
-            col1, col2 = st.columns(2)
-            with col1:
-                c_l = st.slider(
-                    "C_L",
-                    min_value=0.8, max_value=1.5,
-                    value=default_cl,
-                    step=0.05,
-                    key=f"c_l_{i}"
-                )
-            with col2:
-                c_d = st.slider(
-                    "C_D",
-                    min_value=0.7, max_value=1.3,
-                    value=default_cd,
-                    step=0.05,
-                    key=f"c_d_{i}"
-                )
-            
-            alpha_elec = st.slider(
-                "Electric Fraction",
-                min_value=0.0, max_value=0.4,
-                value=default_alpha,
-                step=0.01,
-                key=f"alpha_{i}"
-            )
-            
-            col1, col2 = st.columns(2)
-            with col1:
-                e_deploy = st.slider(
-                    "E_deploy (MJ)",
-                    min_value=2.0, max_value=4.0,
-                    value=default_edeploy,
-                    step=0.1,
-                    key=f"e_deploy_{i}"
-                )
-            with col2:
-                gamma_cool = st.slider(
-                    "Cooling",
-                    min_value=0.8, max_value=1.2,
-                    value=default_gamma,
-                    step=0.02,
-                    key=f"gamma_{i}"
-                )
-            
-            setup = Setup(
-                mass=mass,
-                c_l=c_l,
-                c_d=c_d,
-                alpha_elec=alpha_elec,
-                e_deploy=e_deploy,
-                gamma_cool=gamma_cool
-            )
-            setups.append((setup_label, setup))
+            setups.append((label, Setup(mass, c_l, c_d, alpha, e_dep, gamma)))
     
-    st.markdown("---")
+    st.divider()
     
-    run_analysis = st.button("Run Analysis", use_container_width=True, type="primary")
-    
-    if run_analysis:
+    if st.button("Run Analysis", use_container_width=True, type="primary"):
         st.session_state.setups = setups
         st.session_state.predictions = [
             st.session_state.predictor.predict(s) for _, s in setups
@@ -283,16 +175,16 @@ with st.sidebar:
 
 
 # ============================================================================
-# MAIN CONTENT
+# MAIN PAGE
 # ============================================================================
 
 st.title("F1 Track Analytics")
-st.markdown("**Spa-Francorchamps Circuit** | ML-Based Lap Time Prediction")
-st.markdown("---")
+st.markdown("**Spa-Francorchamps Circuit** — Machine Learning Lap Time Prediction")
 
-# Check if analysis has been run
+st.divider()
+
 if not st.session_state.predictions:
-    st.info("Configure setups in the sidebar and click **Run Analysis** to begin.")
+    st.info("Configure setups in the sidebar and click Run Analysis to begin.")
     st.stop()
 
 setups = st.session_state.setups
@@ -300,293 +192,161 @@ predictions = st.session_state.predictions
 predictor = st.session_state.predictor
 
 
-# ============================================================================
-# SECTION 1: LAP TIME OVERVIEW
-# ============================================================================
+# ----------------------------------------------------------------------------
+# LAP TIMES
+# ----------------------------------------------------------------------------
 
-st.header("Lap Time Overview")
+st.header("Lap Time Results")
 
-# Primary metrics row
 cols = st.columns(len(setups))
-for col, (name, setup), pred in zip(cols, setups, predictions):
+for col, (name, _), pred in zip(cols, setups, predictions):
     with col:
-        lap_formatted = format_laptime(pred['lap_time'])
-        
+        delta_str = None
         if name != "Baseline":
-            delta = pred['lap_time'] - predictions[0]['lap_time']
-            delta_str = format_delta(delta)
-        else:
-            delta_str = None
-        
-        st.metric(
-            label=name,
-            value=lap_formatted,
-            delta=delta_str,
-            delta_color="inverse"
-        )
+            d = pred['lap_time'] - predictions[0]['lap_time']
+            delta_str = format_delta(d)
+        st.metric(name, format_laptime(pred['lap_time']), delta=delta_str, delta_color="inverse")
 
-st.markdown("")
+st.markdown("#### Sector Breakdown")
 
-# Sector times table
-st.markdown("### Sector Times")
-
-sector_data = []
+rows = []
 for (name, _), pred in zip(setups, predictions):
-    baseline_pred = predictions[0]
-    
-    if name == "Baseline":
-        s1_delta = s2_delta = s3_delta = "-"
-    else:
-        s1_delta = format_delta(pred['sector_1'] - baseline_pred['sector_1'])
-        s2_delta = format_delta(pred['sector_2'] - baseline_pred['sector_2'])
-        s3_delta = format_delta(pred['sector_3'] - baseline_pred['sector_3'])
-    
-    sector_data.append({
-        'Configuration': name,
+    base = predictions[0]
+    row = {
+        'Setup': name,
         'Sector 1': format_laptime(pred['sector_1']),
-        'S1 Delta': s1_delta,
         'Sector 2': format_laptime(pred['sector_2']),
-        'S2 Delta': s2_delta,
         'Sector 3': format_laptime(pred['sector_3']),
-        'S3 Delta': s3_delta,
-        'Lap Time': format_laptime(pred['lap_time'])
-    })
+        'Total': format_laptime(pred['lap_time']),
+        'Delta': format_delta(pred['lap_time'] - base['lap_time']) if name != "Baseline" else '-'
+    }
+    rows.append(row)
 
-sector_df = pd.DataFrame(sector_data)
-st.dataframe(sector_df, use_container_width=True, hide_index=True)
+st.dataframe(pd.DataFrame(rows), hide_index=True, use_container_width=True)
 
-# Warnings
-for (name, _), pred in zip(setups, predictions):
-    if not pred['is_valid']:
-        st.warning(f"**{name}**: Parameters out of valid range - {', '.join(pred['warnings'])}")
-    if pred['is_ood']:
-        st.warning(f"**{name}**: Out-of-distribution input (severity: {pred['ood_severity']:.2f})")
-
-st.markdown("---")
+st.divider()
 
 
-# ============================================================================
-# SECTION 2: SEGMENT ANALYSIS
-# ============================================================================
+# ----------------------------------------------------------------------------
+# SEGMENT ANALYSIS
+# ----------------------------------------------------------------------------
 
 st.header("Segment Analysis")
 
-# Segment names for Spa
-SEGMENT_NAMES = [
+SEGMENTS = [
     "La Source", "Eau Rouge Approach", "Eau Rouge", "Raidillon", "Kemmel Straight",
     "Les Combes Entry", "Les Combes Exit", "Malmedy", "Rivage", "Pre-Pouhon",
     "Pouhon", "Fagnes", "Campus Straight", "Campus", "Stavelot",
     "Paul Frere", "Blanchimont", "Chicane Approach", "Bus Stop", "Start/Finish"
 ]
 
-col1, col2 = st.columns([1.5, 1])
+left, right = st.columns([1.3, 1])
 
-with col1:
-    st.markdown("### Segment Times")
-    
-    segment_data = {'Segment': [f"{i+1}. {name}" for i, name in enumerate(SEGMENT_NAMES)]}
-    
-    for (setup_name, _), pred in zip(setups, predictions):
-        segment_data[setup_name] = [f"{t:.3f}s" for t in pred['segment_times']]
-    
-    # Add deltas
-    if len(predictions) > 1:
-        baseline_times = predictions[0]['segment_times']
-        for (setup_name, _), pred in zip(setups[1:], predictions[1:]):
-            deltas = [p - b for p, b in zip(pred['segment_times'], baseline_times)]
-            segment_data[f"{setup_name} Delta"] = [format_delta(d) for d in deltas]
-    
-    segment_df = pd.DataFrame(segment_data)
-    st.dataframe(segment_df, use_container_width=True, hide_index=True, height=450)
+with left:
+    seg_data = {'Segment': [f"{i+1}. {n}" for i, n in enumerate(SEGMENTS)]}
+    for (name, _), pred in zip(setups, predictions):
+        seg_data[name] = [f"{t:.3f}s" for t in pred['segment_times']]
+    st.dataframe(pd.DataFrame(seg_data), hide_index=True, use_container_width=True, height=400)
 
-with col2:
-    st.markdown("### Cumulative Time")
-    fig = plot_cumulative_time(
-        [name for name, _ in setups],
-        [pred['segment_times'] for pred in predictions]
-    )
+with right:
+    st.markdown("**Cumulative Time**")
+    fig = plot_cumulative_time([n for n, _ in setups], [p['segment_times'] for p in predictions])
     st.pyplot(fig)
 
-# Segment delta visualization
 if len(setups) > 1:
-    st.markdown("### Segment Delta Analysis")
-    
-    comparison_idx = st.selectbox(
-        "Compare configuration:",
-        options=range(1, len(setups)),
-        format_func=lambda x: setups[x][0],
-        index=0
-    )
-    
-    segment_deltas = [
-        predictions[comparison_idx]['segment_times'][i] - predictions[0]['segment_times'][i]
-        for i in range(20)
-    ]
-    
-    fig = plot_segment_deltas(segment_deltas, SEGMENT_NAMES)
+    st.markdown("#### Segment Delta vs Baseline")
+    deltas = [predictions[1]['segment_times'][i] - predictions[0]['segment_times'][i] for i in range(20)]
+    fig = plot_segment_deltas(deltas, SEGMENTS)
     st.pyplot(fig)
 
-st.markdown("---")
+st.divider()
 
 
-# ============================================================================
-# SECTION 3: SENSITIVITY ANALYSIS
-# ============================================================================
+# ----------------------------------------------------------------------------
+# SENSITIVITY
+# ----------------------------------------------------------------------------
 
 st.header("Sensitivity Analysis")
 
-col1, col2 = st.columns(2)
+left, right = st.columns(2)
 
-with col1:
-    st.markdown("### Feature Importance")
-    
+with left:
+    st.markdown("#### Feature Importance")
     _ = predictor.predict(setups[0][1])
-    importance_df = predictor.get_feature_importance()
-    
-    fig = plot_feature_importance(importance_df, top_n=12)
+    fig = plot_feature_importance(predictor.get_feature_importance(), top_n=10)
     st.pyplot(fig)
 
-with col2:
-    st.markdown("### Physical Consistency")
-    st.markdown("Verification that model respects expected physical relationships:")
-    
-    monotonicity_df = check_monotonicity(predictor, setups[0][1])
-    
-    def highlight_status(val):
-        if val == 'OK':
-            return 'background-color: #d4edda; color: #155724;'
-        elif val == 'WARN':
-            return 'background-color: #f8d7da; color: #721c24;'
-        return ''
-    
-    st.dataframe(
-        monotonicity_df.style.applymap(highlight_status, subset=['Status']),
-        use_container_width=True,
-        hide_index=True
-    )
+with right:
+    st.markdown("#### Physical Consistency")
+    mono_df = check_monotonicity(predictor, setups[0][1])
+    st.dataframe(mono_df, hide_index=True, use_container_width=True)
 
-# Partial Dependence
-st.markdown("### Partial Dependence Plots")
-st.markdown("Effect of each parameter on predicted lap time (other parameters held constant):")
-
-pdp_params = ['mass', 'c_l', 'c_d', 'alpha_elec', 'e_deploy', 'gamma_cool']
-param_units = {'mass': 'kg', 'c_l': '', 'c_d': '', 'alpha_elec': '', 'e_deploy': 'MJ', 'gamma_cool': ''}
+st.markdown("#### Partial Dependence Plots")
 
 pdp_data = {}
-for param in pdp_params:
-    values, lap_times = predictor.compute_partial_dependence(param, setups[0][1])
-    pdp_data[param] = (values, lap_times)
+for p in ['mass', 'c_l', 'c_d', 'alpha_elec', 'e_deploy', 'gamma_cool']:
+    vals, times = predictor.compute_partial_dependence(p, setups[0][1])
+    pdp_data[p] = (vals, times)
 
-fig = plot_pdp_grid(pdp_data, param_units)
+fig = plot_pdp_grid(pdp_data, {'mass': 'kg', 'e_deploy': 'MJ'})
 st.pyplot(fig)
 
-st.markdown("---")
+st.divider()
 
 
-# ============================================================================
-# SECTION 4: TRADE-OFF ANALYSIS
-# ============================================================================
+# ----------------------------------------------------------------------------
+# TRADE-OFFS
+# ----------------------------------------------------------------------------
 
 st.header("Trade-Off Analysis")
 
-col1, col2, col3 = st.columns(3)
+c1, c2, c3 = st.columns(3)
 
-with col1:
-    st.markdown("### Mass vs Lap Time")
-    tradeoff_df = compute_tradeoff_curve(predictor, setups[0][1], 'mass')
-    fig = plot_tradeoff(
-        tradeoff_df['mass'].values,
-        tradeoff_df['Lap Time (s)'].values,
-        x_label="Mass (kg)",
-        title="Mass Impact"
-    )
+with c1:
+    st.markdown("**Mass vs Lap Time**")
+    df = compute_tradeoff_curve(predictor, setups[0][1], 'mass')
+    fig = plot_tradeoff(df['mass'].values, df['Lap Time (s)'].values, "Mass (kg)", title="")
     st.pyplot(fig)
 
-with col2:
-    st.markdown("### Energy vs Lap Time")
-    tradeoff_df = compute_tradeoff_curve(predictor, setups[0][1], 'e_deploy')
-    fig = plot_tradeoff(
-        tradeoff_df['e_deploy'].values,
-        tradeoff_df['Lap Time (s)'].values,
-        x_label="E_deploy (MJ)",
-        title="Energy Deployment Impact"
-    )
+with c2:
+    st.markdown("**Energy Deployment**")
+    df = compute_tradeoff_curve(predictor, setups[0][1], 'e_deploy')
+    fig = plot_tradeoff(df['e_deploy'].values, df['Lap Time (s)'].values, "E_deploy (MJ)", title="")
     st.pyplot(fig)
 
-with col3:
-    st.markdown("### Aero Efficiency")
-    aero_df = compute_aero_efficiency_curve(predictor, setups[0][1])
-    fig = plot_tradeoff(
-        aero_df['Aero Efficiency (C_L/C_D)'].values,
-        aero_df['Lap Time (s)'].values,
-        x_label="C_L / C_D",
-        title="Aerodynamic Efficiency"
-    )
+with c3:
+    st.markdown("**Aero Efficiency**")
+    df = compute_aero_efficiency_curve(predictor, setups[0][1])
+    fig = plot_tradeoff(df['Aero Efficiency (C_L/C_D)'].values, df['Lap Time (s)'].values, "C_L/C_D", title="")
     st.pyplot(fig)
 
-st.markdown("---")
+st.divider()
 
 
-# ============================================================================
-# SECTION 5: MODEL INFORMATION
-# ============================================================================
+# ----------------------------------------------------------------------------
+# MODEL INFO
+# ----------------------------------------------------------------------------
 
-st.header("Model Confidence")
+st.header("Model Information")
 
-col1, col2 = st.columns(2)
+stats = get_model_stats(predictor)
 
-with col1:
-    st.markdown("### Model Specifications")
-    
-    stats = get_model_stats(predictor)
-    
-    spec_data = {
-        'Metric': ['Model Type', 'Cross-Validation RMSE', 'Mean Prediction Error', '95% Confidence Interval', 'Training Samples'],
-        'Value': [
-            stats['model_name'].upper(),
-            f"{stats['cv_rmse']:.4f} seconds",
-            f"+/- {stats['mean_error']:.3f} seconds",
-            f"+/- {stats['uncertainty_95']:.3f} seconds",
-            "100,000"
-        ]
-    }
-    st.dataframe(pd.DataFrame(spec_data), use_container_width=True, hide_index=True)
+left, right = st.columns(2)
 
-with col2:
-    st.markdown("### Prediction Confidence")
-    
+with left:
+    st.markdown(f"""
+    **Model Type:** {stats['model_name'].upper()}  
+    **Cross-Validation RMSE:** {stats['cv_rmse']:.4f} seconds  
+    **95% Confidence Interval:** ± {stats['uncertainty_95']:.3f} seconds  
+    **Training Samples:** 100,000
+    """)
+
+with right:
     for (name, _), pred in zip(setups, predictions):
-        uncertainty = pred['uncertainty']
-        lap = pred['lap_time']
-        
-        ci_low = format_laptime(lap - 1.96*uncertainty)
-        ci_high = format_laptime(lap + 1.96*uncertainty)
-        
-        if pred['is_valid'] and not pred['is_ood']:
-            status = "High confidence"
-            status_color = "#155724"
-        elif pred['is_ood']:
-            status = "Reduced confidence (OOD)"
-            status_color = "#856404"
-        else:
-            status = "Low confidence"
-            status_color = "#721c24"
-        
-        st.markdown(f"""
-        **{name}**: {format_laptime(lap)}  
-        95% CI: [{ci_low}, {ci_high}]  
-        <span style="color: {status_color};">{status}</span>
-        """, unsafe_allow_html=True)
+        u = pred['uncertainty']
+        lt = pred['lap_time']
+        status = "High confidence" if pred['is_valid'] and not pred['is_ood'] else "Reduced confidence"
+        st.markdown(f"**{name}:** {format_laptime(lt)} ± {u:.3f}s — {status}")
 
-st.markdown("---")
-
-
-# ============================================================================
-# FOOTER
-# ============================================================================
-
-st.markdown("""
-<div style='text-align: center; color: #6c757d; font-size: 11px; padding: 20px; border-top: 1px solid #e9ecef;'>
-    F1 Track Analytics | Spa-Francorchamps Circuit | XGBoost Model (CV RMSE: 0.547s)
-</div>
-""", unsafe_allow_html=True)
+st.divider()
+st.caption("F1 Track Analytics | Spa-Francorchamps | XGBoost Model")
