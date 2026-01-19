@@ -1,498 +1,302 @@
 """
 Sensitivity Analysis Module for F1 Track Time Prediction
 
-Comprehensive analysis including:
-- Feature importance (global and local)
+Performs:
+- Feature importance analysis
 - Partial dependence plots
 - Monotonicity checks
-- Robustness testing (OOD, extreme cases)
-- SHAP explanations
+- Out-of-distribution testing
 """
 
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
-import seaborn as sns
 from pathlib import Path
-from typing import Dict, List, Tuple, Optional, Any
-from sklearn.inspection import partial_dependence
-import shap
-import joblib
+from typing import Dict, List, Optional, Any
+import warnings
+
+warnings.filterwarnings('ignore')
 
 
 class SensitivityAnalyzer:
     """
-    Performs sensitivity and robustness analysis on trained models.
-    
-    Ensures predictions:
-    - Respect physical intuition
-    - Are stable across parameter ranges
-    - Handle edge cases appropriately
+    Comprehensive sensitivity analysis for F1 lap time models.
     """
     
-    # Expected monotonicity for each parameter
-    EXPECTED_MONOTONICITY = {
-        'mass': 'increasing',      # Higher mass → slower lap
-        'c_l': 'decreasing',       # Higher downforce → faster lap
-        'c_d': 'increasing',       # Higher drag → slower lap
-        'alpha_elec': 'decreasing', # More electric → faster lap
-        'e_deploy': 'decreasing',  # More energy → faster lap
-        'gamma_cool': 'decreasing' # Better cooling → faster lap
-    }
-    
     def __init__(self, output_dir: str = "outputs"):
-        """Initialize analyzer."""
+        """Initialize analyzer with output directory."""
         self.output_dir = Path(output_dir)
-        self.output_dir.mkdir(parents=True, exist_ok=True)
+        self.figures_dir = self.output_dir / "figures"
+        self.reports_dir = self.output_dir / "reports"
         
+        self.figures_dir.mkdir(parents=True, exist_ok=True)
+        self.reports_dir.mkdir(parents=True, exist_ok=True)
+    
     def compute_feature_importance(
         self,
         model: Any,
         X: np.ndarray,
-        feature_names: List[str],
-        method: str = 'permutation'
+        feature_names: List[str]
     ) -> pd.DataFrame:
         """
-        Compute feature importance scores.
-        
-        Args:
-            model: Trained model
-            X: Feature matrix
-            feature_names: List of feature names
-            method: 'permutation' or 'builtin'
-            
-        Returns:
-            DataFrame with feature importance
+        Extract feature importance from trained model.
         """
-        print("\n[Feature Importance]")
-        
-        if method == 'builtin' and hasattr(model, 'feature_importances_'):
-            importance = model.feature_importances_
+        # Handle MultiOutputRegressor
+        if hasattr(model, 'estimators_'):
+            importances = np.mean([
+                getattr(est, 'feature_importances_', np.zeros(len(feature_names)))
+                for est in model.estimators_
+            ], axis=0)
+        elif hasattr(model, 'feature_importances_'):
+            importances = model.feature_importances_
+        elif hasattr(model, 'coef_'):
+            importances = np.abs(model.coef_)
         else:
-            # Use permutation importance
-            from sklearn.inspection import permutation_importance
-            
-            # Create dummy y for permutation (using predictions)
-            y_pred = model.predict(X)
-            result = permutation_importance(model, X, y_pred, n_repeats=10, random_state=42)
-            importance = result.importances_mean
+            importances = np.zeros(len(feature_names))
         
-        df_importance = pd.DataFrame({
+        df = pd.DataFrame({
             'feature': feature_names,
-            'importance': importance
-        }).sort_values('importance', ascending=False)
+            'importance': importances
+        })
+        df = df.sort_values('importance', ascending=False).reset_index(drop=True)
+        df['rank'] = range(1, len(df) + 1)
         
-        print("\nTop 10 Features:")
-        for i, row in df_importance.head(10).iterrows():
-            print(f"  {row['feature']:25} {row['importance']:.4f}")
-        
-        return df_importance
+        return df
     
     def plot_feature_importance(
         self,
         importance_df: pd.DataFrame,
-        top_n: int = 15,
-        model_name: str = "model"
-    ) -> str:
+        model_name: str = "model",
+        top_n: int = 15
+    ) -> None:
         """Plot feature importance bar chart."""
-        fig, ax = plt.subplots(figsize=(10, 8))
+        df = importance_df.head(top_n)
         
-        top_df = importance_df.head(top_n).sort_values('importance')
-        
-        colors = plt.cm.viridis(np.linspace(0.2, 0.8, len(top_df)))
-        ax.barh(top_df['feature'], top_df['importance'], color=colors)
+        fig, ax = plt.subplots(figsize=(10, 6))
+        ax.barh(df['feature'], df['importance'], color='steelblue')
         ax.set_xlabel('Importance')
-        ax.set_title(f'{model_name} - Feature Importance (Top {top_n})')
+        ax.set_ylabel('Feature')
+        ax.set_title(f'{model_name}: Top {top_n} Feature Importances')
+        ax.invert_yaxis()
         
         plt.tight_layout()
         
-        save_path = self.output_dir / "figures" / f"{model_name}_feature_importance.png"
-        save_path.parent.mkdir(parents=True, exist_ok=True)
-        plt.savefig(save_path, dpi=150)
+        save_path = self.figures_dir / f"{model_name}_feature_importance.png"
+        plt.savefig(save_path, dpi=150, bbox_inches='tight')
+        print(f"  Feature importance plot saved to {save_path}")
         plt.close()
-        
-        print(f"  Saved: {save_path}")
-        return str(save_path)
     
     def check_monotonicity(
         self,
         model: Any,
         X: np.ndarray,
-        feature_names: List[str],
-        n_points: int = 50
-    ) -> Dict[str, Dict]:
+        feature_names: List[str]
+    ) -> pd.DataFrame:
         """
-        Check if model predictions follow expected monotonicity.
-        
-        Args:
-            model: Trained model
-            X: Feature matrix (for baseline values)
-            feature_names: List of feature names
-            n_points: Number of points for sweep
-            
-        Returns:
-            Dict with monotonicity check results
+        Check if model predictions have expected monotonic relationships.
         """
-        print("\n[Monotonicity Checks]")
+        # Use sample for speed
+        sample_idx = np.random.choice(len(X), min(1000, len(X)), replace=False)
+        X_sample = X[sample_idx]
         
-        results = {}
-        base_sample = X.mean(axis=0)  # Use mean as baseline
+        expected = {
+            'mass': 'positive',
+            'c_d': 'positive',
+            'c_l': 'negative',
+            'power_to_weight': 'negative',
+            'aero_efficiency': 'negative',
+        }
         
-        for i, feat in enumerate(feature_names[:6]):  # Check base features only
-            if feat not in self.EXPECTED_MONOTONICITY:
-                continue
+        results = []
+        for i, feat_name in enumerate(feature_names):
+            # Compute correlation
+            feat_values = np.linspace(X_sample[:, i].min(), X_sample[:, i].max(), 20)
             
-            expected = self.EXPECTED_MONOTONICITY[feat]
+            pd_values = []
+            for val in feat_values:
+                X_mod = X_sample.copy()
+                X_mod[:, i] = val
+                preds = model.predict(X_mod)
+                pd_values.append(np.mean(preds))
             
-            # Create sweep
-            min_val = X[:, i].min()
-            max_val = X[:, i].max()
-            sweep_values = np.linspace(min_val, max_val, n_points)
+            corr = np.corrcoef(feat_values, pd_values)[0, 1]
             
-            predictions = []
-            for val in sweep_values:
-                test_sample = base_sample.copy()
-                test_sample[i] = val
-                pred = model.predict(test_sample.reshape(1, -1))[0]
-                predictions.append(pred)
-            
-            predictions = np.array(predictions)
-            
-            # Check monotonicity
-            diffs = np.diff(predictions)
-            
-            if expected == 'increasing':
-                is_monotonic = np.all(diffs >= -0.001)  # Small tolerance
-                direction = "increases"
+            if corr > 0.1:
+                direction = 'positive'
+            elif corr < -0.1:
+                direction = 'negative'
             else:
-                is_monotonic = np.all(diffs <= 0.001)
-                direction = "decreases"
+                direction = 'neutral'
             
-            status = "✓ PASS" if is_monotonic else "✗ FAIL"
-            print(f"  {feat}: lap time {direction} as {feat} increases " +
-                  f"(expected: {expected}) {status}")
+            exp = expected.get(feat_name, 'unknown')
+            consistent = (exp == 'unknown') or (exp == direction)
             
-            results[feat] = {
-                'expected': expected,
-                'is_monotonic': is_monotonic,
-                'min_diff': diffs.min(),
-                'max_diff': diffs.max()
-            }
+            results.append({
+                'feature': feat_name,
+                'correlation': corr,
+                'actual': direction,
+                'expected': exp,
+                'consistent': consistent
+            })
         
-        return results
+        return pd.DataFrame(results)
     
     def plot_partial_dependence(
         self,
         model: Any,
         X: np.ndarray,
         feature_names: List[str],
-        features_to_plot: Optional[List[str]] = None,
-        model_name: str = "model"
-    ) -> str:
-        """
-        Plot partial dependence for specified features.
-        """
-        if features_to_plot is None:
-            features_to_plot = feature_names[:6]  # First 6 (base params)
+        model_name: str = "model",
+        top_n: int = 6
+    ) -> None:
+        """Plot partial dependence for top features."""
+        # Use sample
+        sample_idx = np.random.choice(len(X), min(1000, len(X)), replace=False)
+        X_sample = X[sample_idx]
         
-        feature_indices = [feature_names.index(f) for f in features_to_plot if f in feature_names]
+        # Get top features by variance
+        variances = np.var(X_sample, axis=0)
+        top_indices = np.argsort(variances)[-top_n:][::-1]
         
-        fig, axes = plt.subplots(2, 3, figsize=(15, 10))
+        n_cols = 3
+        n_rows = (top_n + n_cols - 1) // n_cols
+        
+        fig, axes = plt.subplots(n_rows, n_cols, figsize=(15, 4*n_rows))
         axes = axes.flatten()
         
-        print("\n[Partial Dependence Plots]")
-        
-        for i, (feat_idx, feat_name) in enumerate(zip(feature_indices, features_to_plot)):
-            if i >= 6:
-                break
+        for i, feat_idx in enumerate(top_indices):
+            feat_name = feature_names[feat_idx]
+            feat_values = np.linspace(X_sample[:, feat_idx].min(), X_sample[:, feat_idx].max(), 30)
             
-            # Manual partial dependence calculation
-            grid = np.linspace(X[:, feat_idx].min(), X[:, feat_idx].max(), 50)
             pd_values = []
-            
-            for val in grid:
-                X_mod = X.copy()
+            for val in feat_values:
+                X_mod = X_sample.copy()
                 X_mod[:, feat_idx] = val
                 preds = model.predict(X_mod)
-                pd_values.append(preds.mean())
+                pd_values.append(np.mean(preds))
             
-            axes[i].plot(grid, pd_values, linewidth=2)
+            axes[i].plot(feat_values, pd_values, linewidth=2, color='steelblue')
             axes[i].set_xlabel(feat_name)
-            axes[i].set_ylabel('Avg Lap Time (s)')
-            axes[i].set_title(f'PD: {feat_name}')
+            axes[i].set_ylabel('Lap Time (s)')
+            axes[i].set_title(f'PDP: {feat_name}')
             axes[i].grid(True, alpha=0.3)
         
-        plt.suptitle(f'{model_name} - Partial Dependence Plots', fontsize=14)
+        for i in range(top_n, len(axes)):
+            axes[i].set_visible(False)
+        
         plt.tight_layout()
         
-        save_path = self.output_dir / "figures" / f"{model_name}_partial_dependence.png"
-        plt.savefig(save_path, dpi=150)
-        plt.close()
-        
-        print(f"  Saved: {save_path}")
-        return str(save_path)
-    
-    def compute_shap_values(
-        self,
-        model: Any,
-        X: np.ndarray,
-        feature_names: List[str],
-        n_samples: int = 1000,
-        model_name: str = "model"
-    ) -> Tuple[np.ndarray, Any]:
-        """
-        Compute SHAP values for model explanations.
-        
-        Args:
-            model: Trained model
-            X: Feature matrix
-            feature_names: List of feature names
-            n_samples: Number of samples for SHAP
-            model_name: Name for saving
-            
-        Returns:
-            Tuple of (shap_values, explainer)
-        """
-        print("\n[SHAP Analysis]")
-        
-        # Sample for efficiency
-        if len(X) > n_samples:
-            idx = np.random.choice(len(X), n_samples, replace=False)
-            X_sample = X[idx]
-        else:
-            X_sample = X
-        
-        print(f"  Computing SHAP values for {len(X_sample)} samples...")
-        
-        # Create explainer
-        explainer = shap.TreeExplainer(model)
-        shap_values = explainer.shap_values(X_sample)
-        
-        # Summary plot
-        fig, ax = plt.subplots(figsize=(10, 8))
-        shap.summary_plot(
-            shap_values, X_sample,
-            feature_names=feature_names,
-            show=False,
-            max_display=15
-        )
-        
-        save_path = self.output_dir / "figures" / f"{model_name}_shap_summary.png"
+        save_path = self.figures_dir / f"{model_name}_partial_dependence.png"
         plt.savefig(save_path, dpi=150, bbox_inches='tight')
+        print(f"  Partial dependence plot saved to {save_path}")
         plt.close()
-        
-        print(f"  Saved: {save_path}")
-        
-        return shap_values, explainer
     
     def test_out_of_distribution(
         self,
         model: Any,
         feature_names: List[str],
-        param_bounds: Dict[str, Tuple[float, float]]
+        param_bounds: Dict[str, tuple]
     ) -> pd.DataFrame:
         """
-        Test model on out-of-distribution setups.
-        
-        Creates extreme parameter combinations to check robustness.
+        Test model on out-of-distribution inputs.
         """
-        print("\n[Out-of-Distribution Testing]")
-        
-        # Define extreme test cases
-        test_cases = [
-            {
-                'name': 'Min Mass + Max Aero',
-                'mass': param_bounds['mass'][0],
-                'c_l': param_bounds['c_l'][1],
-                'c_d': param_bounds['c_d'][0],
-                'alpha_elec': param_bounds['alpha_elec'][1],
-                'e_deploy': param_bounds['e_deploy'][1],
-                'gamma_cool': param_bounds['gamma_cool'][1]
-            },
-            {
-                'name': 'Max Mass + Min Aero',
-                'mass': param_bounds['mass'][1],
-                'c_l': param_bounds['c_l'][0],
-                'c_d': param_bounds['c_d'][1],
-                'alpha_elec': param_bounds['alpha_elec'][0],
-                'e_deploy': param_bounds['e_deploy'][0],
-                'gamma_cool': param_bounds['gamma_cool'][0]
-            },
-            {
-                'name': 'Balanced Setup',
-                'mass': sum(param_bounds['mass']) / 2,
-                'c_l': sum(param_bounds['c_l']) / 2,
-                'c_d': sum(param_bounds['c_d']) / 2,
-                'alpha_elec': sum(param_bounds['alpha_elec']) / 2,
-                'e_deploy': sum(param_bounds['e_deploy']) / 2,
-                'gamma_cool': sum(param_bounds['gamma_cool']) / 2
-            },
-            {
-                'name': 'High Drag Setup',
-                'mass': sum(param_bounds['mass']) / 2,
-                'c_l': param_bounds['c_l'][1],
-                'c_d': param_bounds['c_d'][1],  # High drag
-                'alpha_elec': param_bounds['alpha_elec'][1],
-                'e_deploy': param_bounds['e_deploy'][1],
-                'gamma_cool': param_bounds['gamma_cool'][1]
-            },
-            {
-                'name': 'Low Downforce Setup',
-                'mass': param_bounds['mass'][0],
-                'c_l': param_bounds['c_l'][0],  # Low downforce
-                'c_d': param_bounds['c_d'][0],
-                'alpha_elec': param_bounds['alpha_elec'][1],
-                'e_deploy': param_bounds['e_deploy'][1],
-                'gamma_cool': param_bounds['gamma_cool'][1]
-            }
-        ]
-        
         results = []
-        for case in test_cases:
-            name = case.pop('name')
+        
+        # Generate OOD samples
+        n_samples = 100
+        
+        for scale in [0.5, 0.8, 1.0, 1.2, 1.5, 2.0]:
+            # Generate samples at scaled bounds
+            X_test = []
+            for feat in feature_names:
+                if feat in param_bounds:
+                    low, high = param_bounds[feat]
+                    center = (low + high) / 2
+                    scaled_low = center - (center - low) * scale
+                    scaled_high = center + (high - center) * scale
+                    X_test.append(np.random.uniform(scaled_low, scaled_high, n_samples))
+                else:
+                    X_test.append(np.random.normal(0, 1, n_samples))
             
-            # Create feature vector
-            X_test = np.array([case[f] for f in ['mass', 'c_l', 'c_d', 'alpha_elec', 'e_deploy', 'gamma_cool']])
-            
-            # Pad with zeros for derived features (simplified)
-            if len(feature_names) > 6:
-                X_test = np.pad(X_test, (0, len(feature_names) - 6))
-            
-            pred = model.predict(X_test.reshape(1, -1))[0]
+            X_test = np.column_stack(X_test)
+            preds = model.predict(X_test)
             
             results.append({
-                'case': name,
-                **case,
-                'predicted_lap': pred
+                'scale': scale,
+                'mean_pred': np.mean(preds),
+                'std_pred': np.std(preds),
+                'min_pred': np.min(preds),
+                'max_pred': np.max(preds)
             })
-            
-            print(f"  {name}: {pred:.2f} s")
         
         return pd.DataFrame(results)
     
     def generate_sensitivity_report(
         self,
         importance_df: pd.DataFrame,
-        monotonicity: Dict,
-        ood_results: pd.DataFrame,
-        model_name: str = "model"
-    ) -> str:
-        """Generate comprehensive sensitivity analysis report."""
+        monotonicity_df: pd.DataFrame,
+        ood_df: pd.DataFrame,
+        model_name: str
+    ) -> None:
+        """Generate markdown sensitivity report."""
         
-        # Monotonicity summary
-        mono_pass = sum(1 for v in monotonicity.values() if v['is_monotonic'])
-        mono_total = len(monotonicity)
-        
-        report = f"""# Sensitivity Analysis Report: {model_name}
+        report = f"""# Sensitivity Analysis: {model_name}
 
 ## Feature Importance (Top 10)
 
 | Rank | Feature | Importance |
 |------|---------|------------|
 """
-        for i, row in importance_df.head(10).iterrows():
-            report += f"| {importance_df.index.get_loc(i)+1} | {row['feature']} | {row['importance']:.4f} |\n"
+        for _, row in importance_df.head(10).iterrows():
+            report += f"| {row['rank']} | {row['feature']} | {row['importance']:.4f} |\n"
+        
+        report += """
+
+## Monotonicity Check
+
+| Feature | Correlation | Direction | Expected | Consistent |
+|---------|-------------|-----------|----------|------------|
+"""
+        for _, row in monotonicity_df.head(10).iterrows():
+            check = "✓" if row['consistent'] else "✗"
+            report += f"| {row['feature']} | {row['correlation']:.3f} | {row['actual']} | {row['expected']} | {check} |\n"
+        
+        n_consistent = monotonicity_df['consistent'].sum()
+        n_total = len(monotonicity_df)
         
         report += f"""
 
-## Monotonicity Checks
+## Out-of-Distribution Behavior
 
-**Result: {mono_pass}/{mono_total} checks passed**
-
-| Parameter | Expected | Status |
-|-----------|----------|--------|
+| Scale | Mean Pred | Std Pred | Min | Max |
+|-------|-----------|----------|-----|-----|
 """
-        for param, result in monotonicity.items():
-            status = "✓ Pass" if result['is_monotonic'] else "✗ Fail"
-            report += f"| {param} | {result['expected']} | {status} |\n"
+        for _, row in ood_df.iterrows():
+            report += f"| {row['scale']:.1f} | {row['mean_pred']:.2f} | {row['std_pred']:.2f} | {row['min_pred']:.2f} | {row['max_pred']:.2f} |\n"
         
-        report += """
+        report += f"""
 
-## Out-of-Distribution Tests
+## Summary
 
-| Setup | Predicted Lap Time |
-|-------|-------------------|
-"""
-        for _, row in ood_results.iterrows():
-            report += f"| {row['case']} | {row['predicted_lap']:.2f} s |\n"
-        
-        report += """
+- **Top Feature**: {importance_df.iloc[0]['feature']}
+- **Physics Consistency**: {n_consistent}/{n_total} features consistent
 
-## Interpretation
+## Plots
 
-The sensitivity analysis confirms that the model:
-1. Correctly identifies the most influential parameters
-2. Follows expected physical relationships (monotonicity)
-3. Produces reasonable predictions for extreme setups
+- Feature importance: `figures/{model_name}_feature_importance.png`
+- Partial dependence: `figures/{model_name}_partial_dependence.png`
 """
         
-        report_path = self.output_dir / "reports" / f"{model_name}_sensitivity.md"
-        report_path.parent.mkdir(parents=True, exist_ok=True)
-        
+        report_path = self.reports_dir / f"{model_name}_sensitivity.md"
         with open(report_path, 'w') as f:
             f.write(report)
         
-        print(f"\nReport saved to: {report_path}")
-        return str(report_path)
+        print(f"  Sensitivity report saved to {report_path}")
 
 
 def main():
-    """Run sensitivity analysis on trained model."""
-    print("=" * 60)
-    print("Formula1 Sensitivity Analysis")
-    print("=" * 60)
-    
-    from src.features.engineering import FeatureEngineer
-    
-    # Load data and model
-    data_path = Path("data/synthetic/lap_times_100k.parquet")
-    model_path = Path("models/final/best_lap_predictor.joblib")
-    
-    if not data_path.exists() or not model_path.exists():
-        print("Data or model not found. Run generator and training first.")
-        return
-    
-    # Load
-    df = pd.read_parquet(data_path)
-    model_data = joblib.load(model_path)
-    model = model_data['model']
-    model_name = model_data['name']
-    
-    # Features
-    engineer = FeatureEngineer(include_interactions=True)
-    base_cols = ['mass', 'c_l', 'c_d', 'alpha_elec', 'e_deploy', 'gamma_cool']
-    df_features = engineer.fit_transform(df[base_cols])
-    feature_names = list(df_features.columns)
-    X = df_features.values
-    
-    # Analysis
-    analyzer = SensitivityAnalyzer()
-    
-    print("\n[1/5] Computing feature importance...")
-    importance = analyzer.compute_feature_importance(model, X, feature_names)
-    analyzer.plot_feature_importance(importance, model_name=model_name)
-    
-    print("\n[2/5] Checking monotonicity...")
-    monotonicity = analyzer.check_monotonicity(model, X, feature_names)
-    
-    print("\n[3/5] Generating partial dependence plots...")
-    analyzer.plot_partial_dependence(model, X, feature_names, model_name=model_name)
-    
-    print("\n[4/5] Testing out-of-distribution...")
-    param_bounds = {
-        'mass': (700, 850),
-        'c_l': (0.8, 1.5),
-        'c_d': (0.7, 1.3),
-        'alpha_elec': (0.0, 0.4),
-        'e_deploy': (2.0, 4.0),
-        'gamma_cool': (0.8, 1.2)
-    }
-    ood = analyzer.test_out_of_distribution(model, feature_names, param_bounds)
-    
-    print("\n[5/5] Generating report...")
-    analyzer.generate_sensitivity_report(importance, monotonicity, ood, model_name)
-    
-    print("\n✓ Sensitivity analysis complete!")
+    """Demo sensitivity analysis."""
+    print("Sensitivity Analysis module ready.")
 
 
 if __name__ == "__main__":

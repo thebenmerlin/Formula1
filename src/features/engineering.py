@@ -129,10 +129,15 @@ class FeatureEngineer:
         df['corner_performance'] = df['c_l'] / (df['mass'] / self.BASELINE['ref_mass'])
         
         # Overall balance (neither straight nor corner dominant)
-        df['performance_balance'] = (
-            df['straight_performance'] / df['straight_performance'].mean() +
-            df['corner_performance'] / df['corner_performance'].mean()
-        ) / 2
+        straight_mean = df['straight_performance'].mean()
+        corner_mean = df['corner_performance'].mean()
+        if straight_mean > 0 and corner_mean > 0:
+            df['performance_balance'] = (
+                df['straight_performance'] / straight_mean +
+                df['corner_performance'] / corner_mean
+            ) / 2
+        else:
+            df['performance_balance'] = 1.0
         
         # Mass efficiency (lighter is better, normalized)
         df['mass_efficiency'] = self.BASELINE['ref_mass'] / df['mass']

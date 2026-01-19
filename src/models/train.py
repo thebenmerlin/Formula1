@@ -213,22 +213,11 @@ class LapTimePredictor:
     ) -> ModelResult:
         """
         Train XGBoost with Optuna hyperparameter tuning.
-        
-        Args:
-            X: Feature matrix
-            y: Target vector
-            n_trials: Number of Optuna trials
-            n_folds: CV folds
-            random_state: Random seed
-            
-        Returns:
-            ModelResult with best model
         """
         print("\n" + "=" * 50)
         print("Training XGBoost with Optuna")
         print("=" * 50)
         
-        # Handle multi-output
         is_multi_output = len(y.shape) > 1 and y.shape[1] > 1
         
         def objective(trial):
@@ -264,7 +253,6 @@ class LapTimePredictor:
         study = optuna.create_study(direction='minimize')
         study.optimize(objective, n_trials=n_trials, show_progress_bar=True)
         
-        # Train final model with best params
         best_params = study.best_params
         best_params['random_state'] = random_state
         best_params['n_jobs'] = -1
@@ -280,23 +268,13 @@ class LapTimePredictor:
         y_pred = final_model.predict(X)
         train_rmse = np.sqrt(mean_squared_error(y, y_pred))
         
-        # Get feature importance
-        if not is_multi_output:
-            importance = pd.DataFrame({
-                'feature': range(X.shape[1]),
-                'importance': final_model.feature_importances_
-            }).sort_values('importance', ascending=False)
-        else:
-            importance = None
-        
         result = ModelResult(
             name='xgboost',
             model=final_model,
             train_rmse=train_rmse,
             val_rmse=study.best_value,
             cv_scores=[study.best_value],
-            best_params=best_params,
-            feature_importance=importance
+            best_params=best_params
         )
         
         self.results['xgboost'] = result
@@ -386,12 +364,13 @@ class LapTimePredictor:
         self,
         X: np.ndarray,
         y: np.ndarray,
-        n_trials: int = 30,
-        n_folds: int = 5,
+        n_trials: int = 10,
+        n_folds: int = 3,
         random_state: int = 42
     ) -> ModelResult:
         """
         Train Random Forest with Optuna hyperparameter tuning.
+        Uses a subsample for faster training.
         """
         print("\n" + "=" * 50)
         print("Training Random Forest with Optuna")
@@ -399,12 +378,21 @@ class LapTimePredictor:
         
         is_multi_output = len(y.shape) > 1 and y.shape[1] > 1
         
+        # Use 10% sample for faster training
+        np.random.seed(random_state)
+        sample_size = min(10000, len(X))
+        sample_idx = np.random.choice(len(X), sample_size, replace=False)
+        X_sample = X[sample_idx]
+        y_sample = y[sample_idx] if len(y.shape) == 1 else y[sample_idx]
+        
+        print(f"Using {sample_size:,} samples for RF optimization (10% of data)")
+        
         def objective(trial):
             params = {
-                'n_estimators': trial.suggest_int('n_estimators', 100, 300),
-                'max_depth': trial.suggest_int('max_depth', 5, 20),
-                'min_samples_split': trial.suggest_int('min_samples_split', 2, 20),
-                'min_samples_leaf': trial.suggest_int('min_samples_leaf', 1, 10),
+                'n_estimators': trial.suggest_int('n_estimators', 50, 100),
+                'max_depth': trial.suggest_int('max_depth', 3, 8),
+                'min_samples_split': trial.suggest_int('min_samples_split', 5, 20),
+                'min_samples_leaf': trial.suggest_int('min_samples_leaf', 2, 10),
                 'random_state': random_state,
                 'n_jobs': -1
             }
@@ -416,9 +404,9 @@ class LapTimePredictor:
             kf = KFold(n_splits=n_folds, shuffle=True, random_state=random_state)
             cv_rmses = []
             
-            for train_idx, val_idx in kf.split(X):
-                X_train, X_val = X[train_idx], X[val_idx]
-                y_train, y_val = y[train_idx], y[val_idx]
+            for train_idx, val_idx in kf.split(X_sample):
+                X_train, X_val = X_sample[train_idx], X_sample[val_idx]
+                y_train, y_val = y_sample[train_idx], y_sample[val_idx]
                 
                 model.fit(X_train, y_train)
                 y_pred = model.predict(X_val)
