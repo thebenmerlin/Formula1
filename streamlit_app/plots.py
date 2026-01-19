@@ -2,10 +2,10 @@
 Plots Module for F1 Dashboard
 
 All visualization functions with:
-- Neutral color palette
-- Minimal styling
-- Research-grade presentation
-- No animations
+- Dark professional theme
+- Enterprise-grade presentation
+- Consistent color palette
+- High-contrast readability
 """
 
 import numpy as np
@@ -14,38 +14,50 @@ import matplotlib.pyplot as plt
 import matplotlib.colors as mcolors
 from typing import List, Dict, Optional, Tuple
 
-# Neutral, professional color palette
+# Professional dark theme color palette
 COLORS = {
-    'primary': '#2C3E50',      # Dark blue-gray
-    'secondary': '#7F8C8D',    # Gray
-    'accent': '#3498DB',       # Blue
-    'positive': '#27AE60',     # Green (good/faster)
-    'negative': '#E74C3C',     # Red (bad/slower)
-    'neutral': '#95A5A6',      # Light gray
-    'background': '#FAFAFA',   # Off-white
-    'grid': '#ECF0F1'          # Light gray grid
+    'primary': '#f8fafc',      # Light text
+    'secondary': '#94a3b8',    # Muted text
+    'accent': '#3b82f6',       # Blue accent
+    'accent_secondary': '#8b5cf6',  # Purple accent
+    'positive': '#10b981',     # Green (good/faster)
+    'negative': '#ef4444',     # Red (bad/slower)
+    'neutral': '#64748b',      # Gray neutral
+    'background': '#1e293b',   # Dark background
+    'card': '#0f172a',         # Darker card bg
+    'grid': '#334155',         # Subtle grid
+    'border': '#475569'        # Border color
 }
 
-# Comparison setup colors
-SETUP_COLORS = ['#2C3E50', '#3498DB', '#9B59B6', '#E67E22']
+# Setup comparison colors - vibrant for contrast
+SETUP_COLORS = ['#3b82f6', '#10b981', '#f59e0b', '#8b5cf6']
 
 
-def apply_style(ax, title: str = None, xlabel: str = None, ylabel: str = None):
-    """Apply consistent styling to axis."""
+def apply_dark_style(ax, title: str = None, xlabel: str = None, ylabel: str = None):
+    """Apply consistent dark styling to axis."""
     ax.set_facecolor(COLORS['background'])
+    ax.figure.set_facecolor(COLORS['card'])
+    
+    # Spine styling
+    for spine in ax.spines.values():
+        spine.set_color(COLORS['border'])
+        spine.set_linewidth(0.5)
     ax.spines['top'].set_visible(False)
     ax.spines['right'].set_visible(False)
-    ax.spines['left'].set_color(COLORS['secondary'])
-    ax.spines['bottom'].set_color(COLORS['secondary'])
-    ax.tick_params(colors=COLORS['primary'])
-    ax.grid(True, alpha=0.3, color=COLORS['grid'])
+    
+    # Tick styling
+    ax.tick_params(colors=COLORS['secondary'], labelsize=9)
+    
+    # Grid styling
+    ax.grid(True, alpha=0.15, color=COLORS['grid'], linestyle='-', linewidth=0.5)
+    ax.set_axisbelow(True)
     
     if title:
-        ax.set_title(title, fontsize=12, fontweight='bold', color=COLORS['primary'])
+        ax.set_title(title, fontsize=12, fontweight='600', color=COLORS['primary'], pad=12)
     if xlabel:
-        ax.set_xlabel(xlabel, fontsize=10, color=COLORS['primary'])
+        ax.set_xlabel(xlabel, fontsize=10, color=COLORS['secondary'], labelpad=8)
     if ylabel:
-        ax.set_ylabel(ylabel, fontsize=10, color=COLORS['primary'])
+        ax.set_ylabel(ylabel, fontsize=10, color=COLORS['secondary'], labelpad=8)
 
 
 def plot_sector_comparison(
@@ -69,18 +81,22 @@ def plot_sector_comparison(
     
     for i, (name, times) in enumerate(zip(setups, sector_times)):
         offset = (i - len(setups)/2 + 0.5) * width
-        bars = ax.bar(x + offset, times, width, label=name, color=SETUP_COLORS[i % len(SETUP_COLORS)])
+        bars = ax.bar(x + offset, times, width, label=name, 
+                     color=SETUP_COLORS[i % len(SETUP_COLORS)],
+                     edgecolor='white', linewidth=0.5, alpha=0.9)
         
         # Add value labels
         for bar, val in zip(bars, times):
             ax.text(bar.get_x() + bar.get_width()/2, bar.get_height() + 0.3,
-                   f'{val:.2f}', ha='center', va='bottom', fontsize=8, color=COLORS['primary'])
+                   f'{val:.2f}', ha='center', va='bottom', fontsize=9, 
+                   color=COLORS['primary'], fontweight='500')
     
     ax.set_xticks(x)
-    ax.set_xticklabels(['Sector 1', 'Sector 2', 'Sector 3'])
-    ax.legend(loc='upper right', frameon=False)
+    ax.set_xticklabels(['Sector 1', 'Sector 2', 'Sector 3'], color=COLORS['primary'])
+    ax.legend(loc='upper right', frameon=False, facecolor=COLORS['background'], 
+             labelcolor=COLORS['primary'])
     
-    apply_style(ax, title='Sector Time Comparison', ylabel='Time (s)')
+    apply_dark_style(ax, title='Sector Time Comparison', ylabel='Time (s)')
     
     plt.tight_layout()
     return fig
@@ -103,27 +119,36 @@ def plot_segment_deltas(
     if segment_names is None:
         segment_names = [f"Seg {i+1}" for i in range(len(segment_deltas))]
     
-    fig, ax = plt.subplots(figsize=(10, 8))
+    fig, ax = plt.subplots(figsize=(10, 9))
     
     y = np.arange(len(segment_deltas))
     colors = [COLORS['negative'] if d > 0.001 else COLORS['positive'] if d < -0.001 else COLORS['neutral']
               for d in segment_deltas]
     
-    bars = ax.barh(y, segment_deltas, color=colors, height=0.7)
+    bars = ax.barh(y, segment_deltas, color=colors, height=0.7, 
+                   edgecolor='white', linewidth=0.3, alpha=0.85)
     
     # Add value labels
     for bar, val in zip(bars, segment_deltas):
-        x_pos = bar.get_width() + 0.002 if val >= 0 else bar.get_width() - 0.002
+        x_pos = bar.get_width() + 0.003 if val >= 0 else bar.get_width() - 0.003
         ha = 'left' if val >= 0 else 'right'
+        color = COLORS['negative'] if val > 0.001 else COLORS['positive'] if val < -0.001 else COLORS['neutral']
         ax.text(x_pos, bar.get_y() + bar.get_height()/2,
-               f'{val:+.3f}s', va='center', ha=ha, fontsize=8, color=COLORS['primary'])
+               f'{val:+.3f}s', va='center', ha=ha, fontsize=8, 
+               color=color, fontweight='600')
     
-    ax.axvline(0, color=COLORS['primary'], linewidth=1, linestyle='-')
+    # Center line
+    ax.axvline(0, color=COLORS['primary'], linewidth=1.5, linestyle='-', alpha=0.3)
     ax.set_yticks(y)
-    ax.set_yticklabels(segment_names)
+    ax.set_yticklabels(segment_names, fontsize=9)
     ax.invert_yaxis()
     
-    apply_style(ax, title='Segment Delta vs Baseline', xlabel='Delta (s)')
+    # Add subtle background shading for faster/slower zones
+    xlim = ax.get_xlim()
+    ax.axvspan(xlim[0], 0, alpha=0.03, color=COLORS['positive'])
+    ax.axvspan(0, xlim[1], alpha=0.03, color=COLORS['negative'])
+    
+    apply_dark_style(ax, title='Segment Delta vs Baseline', xlabel='Delta (s) — Negative = Faster')
     
     plt.tight_layout()
     return fig
@@ -149,14 +174,21 @@ def plot_cumulative_time(
     
     for i, (name, times) in enumerate(zip(setups, segment_times)):
         cumulative = np.cumsum(times)
-        ax.plot(x, cumulative, marker='o', markersize=4, linewidth=2,
-               color=SETUP_COLORS[i % len(SETUP_COLORS)], label=name)
+        color = SETUP_COLORS[i % len(SETUP_COLORS)]
+        ax.plot(x, cumulative, marker='o', markersize=5, linewidth=2.5,
+               color=color, label=name, markeredgecolor='white', 
+               markeredgewidth=0.5, alpha=0.9)
+        
+        # Fill under curve with gradient effect
+        ax.fill_between(x, cumulative.min() - 2, cumulative, alpha=0.1, color=color)
     
-    ax.legend(loc='lower right', frameon=False)
+    ax.legend(loc='lower right', frameon=True, facecolor=COLORS['card'], 
+             edgecolor=COLORS['border'], labelcolor=COLORS['primary'])
     ax.set_xticks(x)
+    ax.set_xticklabels([str(i) for i in x], fontsize=8)
     
-    apply_style(ax, title='Cumulative Lap Time Progression',
-               xlabel='Segment', ylabel='Cumulative Time (s)')
+    apply_dark_style(ax, title='Cumulative Lap Time Progression',
+               xlabel='Segment Number', ylabel='Cumulative Time (s)')
     
     plt.tight_layout()
     return fig
@@ -181,12 +213,25 @@ def plot_feature_importance(
     fig, ax = plt.subplots(figsize=(10, 6))
     
     y = np.arange(len(df))
-    ax.barh(y, df['importance'], color=COLORS['accent'], height=0.7)
+    
+    # Create gradient colors based on importance
+    norm_importance = df['importance'] / df['importance'].max()
+    colors = [plt.cm.Blues(0.3 + 0.6 * v) for v in norm_importance]
+    
+    bars = ax.barh(y, df['importance'], color=colors, height=0.7,
+                   edgecolor='white', linewidth=0.3)
+    
+    # Add value labels
+    for bar, val in zip(bars, df['importance']):
+        ax.text(bar.get_width() + 0.002, bar.get_y() + bar.get_height()/2,
+               f'{val:.3f}', va='center', ha='left', fontsize=9, 
+               color=COLORS['secondary'], fontweight='500')
     
     ax.set_yticks(y)
-    ax.set_yticklabels(df['feature'])
+    ax.set_yticklabels(df['feature'], fontsize=10)
+    ax.set_xlim(0, df['importance'].max() * 1.15)
     
-    apply_style(ax, title='Feature Importance (XGBoost)',
+    apply_dark_style(ax, title='Feature Importance (XGBoost)',
                xlabel='Importance Score')
     
     plt.tight_layout()
@@ -213,11 +258,12 @@ def plot_partial_dependence(
     """
     fig, ax = plt.subplots(figsize=(8, 5))
     
-    ax.plot(param_values, lap_times, linewidth=2, color=COLORS['accent'], marker='o', markersize=4)
-    ax.fill_between(param_values, lap_times.min(), lap_times, alpha=0.1, color=COLORS['accent'])
+    ax.plot(param_values, lap_times, linewidth=2.5, color=COLORS['accent'], 
+            marker='o', markersize=5, markeredgecolor='white', markeredgewidth=0.5)
+    ax.fill_between(param_values, lap_times.min(), lap_times, alpha=0.15, color=COLORS['accent'])
     
     xlabel = f"{param_name}" if not param_unit else f"{param_name} ({param_unit})"
-    apply_style(ax, title=f'Partial Dependence: {param_name}',
+    apply_dark_style(ax, title=f'Partial Dependence: {param_name}',
                xlabel=xlabel, ylabel='Predicted Lap Time (s)')
     
     plt.tight_layout()
@@ -246,16 +292,29 @@ def plot_pdp_grid(
     n_rows = (n_params + n_cols - 1) // n_cols
     
     fig, axes = plt.subplots(n_rows, n_cols, figsize=(5*n_cols, 4*n_rows))
+    fig.set_facecolor(COLORS['card'])
     axes = np.atleast_2d(axes).flatten()
+    
+    colors_cycle = [COLORS['accent'], COLORS['positive'], COLORS['accent_secondary'], 
+                    '#f59e0b', '#ec4899', '#06b6d4']
     
     for i, (param, (values, lap_times)) in enumerate(pdp_data.items()):
         ax = axes[i]
-        ax.plot(values, lap_times, linewidth=2, color=COLORS['accent'], marker='o', markersize=3)
-        ax.fill_between(values, lap_times.min(), lap_times, alpha=0.1, color=COLORS['accent'])
+        color = colors_cycle[i % len(colors_cycle)]
+        
+        ax.plot(values, lap_times, linewidth=2.5, color=color, 
+                marker='o', markersize=4, markeredgecolor='white', markeredgewidth=0.3)
+        ax.fill_between(values, lap_times.min() - 0.5, lap_times, alpha=0.12, color=color)
+        
+        # Add min/max markers
+        min_idx = np.argmin(lap_times)
+        max_idx = np.argmax(lap_times)
+        ax.scatter([values[min_idx]], [lap_times[min_idx]], s=60, c=COLORS['positive'],
+                  zorder=5, edgecolors='white', linewidth=1.5)
         
         unit = param_units.get(param, '')
         xlabel = f"{param}" if not unit else f"{param} ({unit})"
-        apply_style(ax, title=f'{param}', xlabel=xlabel, ylabel='Lap Time (s)')
+        apply_dark_style(ax, title=f'{param}', xlabel=xlabel, ylabel='Lap Time (s)')
     
     # Hide unused axes
     for i in range(len(pdp_data), len(axes)):
@@ -287,18 +346,29 @@ def plot_tradeoff(
     """
     fig, ax = plt.subplots(figsize=(9, 5))
     
-    ax.plot(x_values, y_values, linewidth=2, color=COLORS['accent'], marker='o', markersize=5)
+    # Main line with gradient effect
+    ax.plot(x_values, y_values, linewidth=3, color=COLORS['accent'], 
+            marker='o', markersize=6, markeredgecolor='white', markeredgewidth=0.5,
+            alpha=0.9)
     
-    # Mark min lap time
+    # Fill under curve
+    ax.fill_between(x_values, y_values.min() - 0.5, y_values, alpha=0.1, color=COLORS['accent'])
+    
+    # Mark min lap time with prominent marker
     min_idx = np.argmin(y_values)
-    ax.scatter([x_values[min_idx]], [y_values[min_idx]], s=100, c=COLORS['positive'],
-              zorder=5, edgecolors='white', linewidth=2)
-    ax.annotate(f'Optimal: {y_values[min_idx]:.2f}s',
-               xy=(x_values[min_idx], y_values[min_idx]),
-               xytext=(10, 10), textcoords='offset points',
-               fontsize=9, color=COLORS['positive'])
+    ax.scatter([x_values[min_idx]], [y_values[min_idx]], s=150, c=COLORS['positive'],
+              zorder=5, edgecolors='white', linewidth=2, marker='*')
     
-    apply_style(ax, title=title, xlabel=x_label, ylabel=y_label)
+    # Add annotation for optimal point
+    ax.annotate(f'Optimal\n{y_values[min_idx]:.3f}s',
+               xy=(x_values[min_idx], y_values[min_idx]),
+               xytext=(15, 15), textcoords='offset points',
+               fontsize=10, color=COLORS['positive'], fontweight='600',
+               bbox=dict(boxstyle='round,pad=0.3', facecolor=COLORS['card'], 
+                        edgecolor=COLORS['positive'], alpha=0.9),
+               arrowprops=dict(arrowstyle='->', color=COLORS['positive'], lw=1.5))
+    
+    apply_dark_style(ax, title=title, xlabel=x_label, ylabel=y_label)
     
     plt.tight_layout()
     return fig
@@ -322,13 +392,16 @@ def plot_validation_histogram(
     
     fig, ax = plt.subplots(figsize=(8, 5))
     
-    ax.hist(errors, bins=30, color=COLORS['accent'], edgecolor='white', alpha=0.8)
-    ax.axvline(0, color=COLORS['negative'], linewidth=2, linestyle='--')
-    ax.axvline(np.mean(errors), color=COLORS['positive'], linewidth=2, label=f'Mean: {np.mean(errors):.3f}')
+    ax.hist(errors, bins=30, color=COLORS['accent'], edgecolor='white', 
+            alpha=0.8, linewidth=0.5)
+    ax.axvline(0, color=COLORS['negative'], linewidth=2, linestyle='--', alpha=0.7)
+    ax.axvline(np.mean(errors), color=COLORS['positive'], linewidth=2, 
+               label=f'Mean: {np.mean(errors):.3f}')
     
-    ax.legend(loc='upper right', frameon=False)
+    ax.legend(loc='upper right', frameon=True, facecolor=COLORS['card'],
+             edgecolor=COLORS['border'], labelcolor=COLORS['primary'])
     
-    apply_style(ax, title='Prediction Error Distribution',
+    apply_dark_style(ax, title='Prediction Error Distribution',
                xlabel='Error (s)', ylabel='Frequency')
     
     plt.tight_layout()
