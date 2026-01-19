@@ -1,88 +1,112 @@
-# F1 ML Design Trade-Space Exploration System
+# Formula1 — High-Accuracy Track Time Prediction
 
-A physics-informed ML system for evaluating how high-level F1 vehicle design parameters affect lap time, energy usage, and thermal risk under 2026-style hybrid constraints at Spa-Francorchamps.
+**Analytics-First Machine Learning Project**
 
-## Overview
+## Objective
 
-This is NOT a driving simulator or real-time physics engine. It's a **design trade-space exploration tool** that:
-- Uses physics-informed synthetic data generation
-- Trains ML surrogate models for fast design evaluation
-- Enables comparison of different vehicle configurations
+Predict segment times, sector times, and total lap time at Spa-Francorchamps for an F1-style hybrid car with maximum achievable accuracy using physics-informed synthetic data and interpretable machine learning.
 
-## Design Parameters
+---
 
-| Parameter | Symbol | Range | Description |
-|-----------|--------|-------|-------------|
-| Mass | m | 740-800 kg | Total vehicle mass |
-| Aero Load | C_L | 0.8-1.3 | Normalized downforce coefficient |
-| Aero Drag | C_D | 0.85-1.2 | Normalized drag coefficient |
-| Electric Fraction | α_elec | 0.35-0.60 | P_electric / P_total |
-| Energy Deploy | E_deploy | 5-9 MJ | Max electric energy per lap |
-| Cooling Factor | γ_cool | 0.7-1.3 | Cooling aggressiveness |
+## Design Parameter Vector (Fixed)
 
-## Outputs
+Each vehicle setup is defined by exactly **6 parameters**:
 
-For each design vector, the system predicts:
-- **Lap Time**: Total time at Spa (seconds)
-- **Energy Used**: Electric energy consumed (MJ)
-- **Thermal Risk**: Continuous indicator (0-1)
+| Parameter | Symbol | Description | Range |
+|-----------|--------|-------------|-------|
+| Total Mass | `m` | Vehicle mass in kg | 700–850 kg |
+| Aero Load Coefficient | `C_L` | Normalized downforce coefficient | 0.8–1.5 |
+| Aero Drag Coefficient | `C_D` | Normalized drag coefficient | 0.7–1.3 |
+| Electric Power Fraction | `α_elec` | Fraction of power from electric (0–1) | 0.0–0.4 |
+| Max Deployable Energy | `E_deploy` | Max electric energy per lap (MJ) | 2.0–4.0 MJ |
+| Cooling Aggressiveness | `γ_cool` | Cooling factor affecting power availability | 0.8–1.2 |
 
-## Quick Start
+---
 
-```bash
-# Install dependencies
-pip install -r requirements.txt
+## Output Targets
 
-# Generate synthetic training data
-python -m src.data.data_generator
+The model predicts:
 
-# Train ML models
-python -m src.models.train
-
-# Evaluate and analyze
-python -m src.models.evaluate
-
-# Launch Streamlit Dashboard
-streamlit run src/app.py
+```
+y = [
+    segment_times[1..N],   # N ≈ 20 Spa segments
+    sector_times[1..3],    # 3 sectors
+    lap_time               # Total lap time
+]
 ```
 
-## Streamlit Dashboard
-
-The interactive design comparison dashboard provides:
-- **Track Visualization**: 2D polyline of Spa-Francorchamps with animated design markers
-- **Timing Grid**: Sector-by-sector times and lap totals
-- **Engineering Plots**: Energy deployment, speed profiles, and time deltas
-- **Design Selection**: Compare 2-4 vehicle configurations side-by-side
-
-```bash
-# Launch the dashboard
-streamlit run src/app.py
-```
+---
 
 ## Project Structure
 
 ```
 Formula1/
 ├── src/
-│   ├── config.py           # Central configuration
-│   ├── data/               # Track, physics, data generation
-│   ├── models/             # ML training and evaluation
-│   └── analysis/           # Segment prediction, comparison
-├── data/                   # Generated datasets
-├── models/                 # Saved model artifacts
-└── outputs/                # Plots, Streamlit-ready outputs
+│   ├── data/           # Synthetic data generation
+│   ├── features/       # Feature engineering
+│   ├── models/         # Model training & tuning
+│   ├── evaluation/     # Evaluation & metrics
+│   └── analysis/       # Sensitivity & robustness analysis
+├── data/
+│   ├── raw/            # Raw track/physics data
+│   ├── processed/      # Preprocessed datasets
+│   └── synthetic/      # Generated training data
+├── models/
+│   ├── checkpoints/    # Training checkpoints
+│   └── final/          # Production-ready models
+├── outputs/
+│   ├── figures/        # Plots and visualizations
+│   └── reports/        # Evaluation reports
+├── notebooks/          # Exploratory analysis
+├── configs/            # Configuration files
+└── requirements.txt    # Dependencies
 ```
 
-## Track: Spa-Francorchamps
+---
 
-- Total length: ~7.004 km
-- 20 segments (corners and straights)
-- Includes elevation changes and varying curvatures
+## Execution Order
 
-## ML Models
+1. **Finalize physics-informed data generator**
+2. **Generate large, diverse datasets** (≥100,000 samples)
+3. **Engineer derived features** (power-to-weight, aero efficiency, etc.)
+4. **Train baseline models** (Linear, Ridge, Lasso)
+5. **Train advanced models** (XGBoost, LightGBM, Random Forest)
+6. **Deep evaluation & sensitivity analysis**
+7. **Freeze best-performing, explainable model**
 
-1. **Baseline**: Ridge-regularized Linear Regression
-2. **Main**: Gradient Boosting Regressor
-3. **Optional**: 2-layer MLP
+---
 
-All models are multi-output regressors predicting lap_time, energy_used, and thermal_risk simultaneously.
+## Key Principles
+
+- **Accuracy over speed**: Prioritize prediction quality
+- **Physics-informed**: All assumptions grounded in engineering logic
+- **Explainable**: No black-box acceptance without reasoning
+- **Robust**: Stable across retraining and edge cases
+
+---
+
+## Quick Start
+
+```bash
+# Create virtual environment
+python -m venv venv
+source venv/bin/activate  # On Windows: venv\Scripts\activate
+
+# Install dependencies
+pip install -r requirements.txt
+
+# Generate synthetic data
+python -m src.data.generator
+
+# Train models
+python -m src.models.train
+
+# Evaluate
+python -m src.evaluation.evaluate
+```
+
+---
+
+## License
+
+MIT License

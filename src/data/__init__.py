@@ -1,1 +1,7 @@
-"""Data generation and track definition modules."""
+"""
+Data module for synthetic data generation and loading.
+"""
+
+from .generator import SpaTrackGenerator, main as generate_data
+
+__all__ = ['SpaTrackGenerator', 'generate_data']

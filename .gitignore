@@ -1,21 +1,46 @@
+# Virtual Environment
+venv/
+env/
+.venv/
+
 # Python
 __pycache__/
-*.pyc
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+dist/
+build/
 
-# Virtual environments
-venv/
-.env/
+# Data (large files)
+data/synthetic/*.parquet
+data/synthetic/*.csv
+*.pkl
+*.joblib
 
-# Data artifacts (optional – keep raw if you want)
-data/*.csv
-data/*.parquet
+# Models
+models/checkpoints/*
+models/final/*.pkl
+models/final/*.joblib
+!models/checkpoints/.gitkeep
+!models/final/.gitkeep
 
-# Model artifacts
-models/*.pkl
-models/*.joblib
-
-# Streamlit cache
-.streamlit/
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
 
 # OS
 .DS_Store
+Thumbs.db
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Outputs (regeneratable)
+outputs/figures/*
+outputs/reports/*
+!outputs/figures/.gitkeep
+!outputs/reports/.gitkeep

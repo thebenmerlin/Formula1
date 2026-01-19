@@ -1,0 +1,176 @@
+# Spa-Francorchamps Track Configuration
+# Physics-informed segment definitions for lap time prediction
+
+track:
+  name: "Spa-Francorchamps"
+  country: "Belgium"
+  total_length_km: 7.004
+  
+# 20 segments with physics characteristics
+segments:
+  - id: 1
+    name: "La Source"
+    type: "corner"
+    length_m: 150
+    apex_radius_m: 35
+    elevation_change_m: -5
+    
+  - id: 2
+    name: "Eau Rouge Approach"
+    type: "straight"
+    length_m: 350
+    apex_radius_m: null
+    elevation_change_m: -30
+    
+  - id: 3
+    name: "Eau Rouge"
+    type: "corner"
+    length_m: 200
+    apex_radius_m: 80
+    elevation_change_m: 35
+    
+  - id: 4
+    name: "Raidillon"
+    type: "corner"
+    length_m: 180
+    apex_radius_m: 90
+    elevation_change_m: 40
+    
+  - id: 5
+    name: "Kemmel Straight"
+    type: "straight"
+    length_m: 800
+    apex_radius_m: null
+    elevation_change_m: 10
+    
+  - id: 6
+    name: "Les Combes Entry"
+    type: "corner"
+    length_m: 120
+    apex_radius_m: 40
+    elevation_change_m: 0
+    
+  - id: 7
+    name: "Les Combes Exit"
+    type: "corner"
+    length_m: 100
+    apex_radius_m: 50
+    elevation_change_m: -5
+    
+  - id: 8
+    name: "Malmedy"
+    type: "corner"
+    length_m: 180
+    apex_radius_m: 55
+    elevation_change_m: -10
+    
+  - id: 9
+    name: "Rivage"
+    type: "corner"
+    length_m: 140
+    apex_radius_m: 30
+    elevation_change_m: -15
+    
+  - id: 10
+    name: "Pre-Pouhon Straight"
+    type: "straight"
+    length_m: 400
+    apex_radius_m: null
+    elevation_change_m: -5
+    
+  - id: 11
+    name: "Pouhon"
+    type: "corner"
+    length_m: 300
+    apex_radius_m: 120
+    elevation_change_m: -20
+    
+  - id: 12
+    name: "Fagnes"
+    type: "corner"
+    length_m: 200
+    apex_radius_m: 60
+    elevation_change_m: -5
+    
+  - id: 13
+    name: "Campus Straight"
+    type: "straight"
+    length_m: 350
+    apex_radius_m: null
+    elevation_change_m: 0
+    
+  - id: 14
+    name: "Campus"
+    type: "corner"
+    length_m: 150
+    apex_radius_m: 45
+    elevation_change_m: -10
+    
+  - id: 15
+    name: "Stavelot"
+    type: "corner"
+    length_m: 280
+    apex_radius_m: 85
+    elevation_change_m: -15
+    
+  - id: 16
+    name: "Paul Frere Straight"
+    type: "straight"
+    length_m: 450
+    apex_radius_m: null
+    elevation_change_m: 5
+    
+  - id: 17
+    name: "Blanchimont"
+    type: "corner"
+    length_m: 350
+    apex_radius_m: 150
+    elevation_change_m: 10
+    
+  - id: 18
+    name: "Chicane Approach"
+    type: "straight"
+    length_m: 300
+    apex_radius_m: null
+    elevation_change_m: 0
+    
+  - id: 19
+    name: "Bus Stop Chicane"
+    type: "corner"
+    length_m: 200
+    apex_radius_m: 25
+    elevation_change_m: 5
+    
+  - id: 20
+    name: "Start/Finish Straight"
+    type: "straight"
+    length_m: 310
+    apex_radius_m: null
+    elevation_change_m: 5
+
+# Sector boundaries
+sectors:
+  sector_1:
+    segments: [1, 2, 3, 4, 5, 6, 7]
+    description: "La Source to Les Combes"
+    
+  sector_2:
+    segments: [8, 9, 10, 11, 12, 13, 14, 15]
+    description: "Malmedy to Stavelot"
+    
+  sector_3:
+    segments: [16, 17, 18, 19, 20]
+    description: "Paul Frere to Start/Finish"
+
+# Physics constants for simulation
+physics:
+  air_density_kg_m3: 1.225
+  gravity_m_s2: 9.81
+  rolling_resistance: 0.015
+  tire_grip_coefficient: 1.8
+
+# Vehicle baseline parameters
+vehicle_baseline:
+  ice_power_kw: 560
+  electric_power_kw: 120
+  frontal_area_m2: 1.5
