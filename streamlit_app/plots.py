@@ -2,7 +2,7 @@
 Plots Module for F1 Dashboard
 
 All visualization functions with:
-- Dark professional theme
+- Light professional theme
 - Enterprise-grade presentation
 - Consistent color palette
 - High-contrast readability
@@ -14,27 +14,27 @@ import matplotlib.pyplot as plt
 import matplotlib.colors as mcolors
 from typing import List, Dict, Optional, Tuple
 
-# Professional dark theme color palette
+# Professional light theme color palette
 COLORS = {
-    'primary': '#f8fafc',      # Light text
-    'secondary': '#94a3b8',    # Muted text
-    'accent': '#3b82f6',       # Blue accent
-    'accent_secondary': '#8b5cf6',  # Purple accent
-    'positive': '#10b981',     # Green (good/faster)
-    'negative': '#ef4444',     # Red (bad/slower)
+    'primary': '#0f172a',      # Dark text
+    'secondary': '#64748b',    # Muted text
+    'accent': '#1d4ed8',       # Blue accent
+    'accent_secondary': '#6d28d9',  # Purple accent
+    'positive': '#166534',     # Green (good/faster)
+    'negative': '#dc2626',     # Red (bad/slower)
     'neutral': '#64748b',      # Gray neutral
-    'background': '#1e293b',   # Dark background
-    'card': '#0f172a',         # Darker card bg
-    'grid': '#334155',         # Subtle grid
-    'border': '#475569'        # Border color
+    'background': '#ffffff',   # Light background
+    'card': '#f8fafc',         # Lighter card bg
+    'grid': '#e2e8f0',         # Subtle grid
+    'border': '#cbd5e1'        # Border color
 }
 
-# Setup comparison colors - vibrant for contrast
-SETUP_COLORS = ['#3b82f6', '#10b981', '#f59e0b', '#8b5cf6']
+# Setup comparison colors - professional for light mode
+SETUP_COLORS = ['#1d4ed8', '#166534', '#b45309', '#6d28d9']
 
 
-def apply_dark_style(ax, title: str = None, xlabel: str = None, ylabel: str = None):
-    """Apply consistent dark styling to axis."""
+def apply_light_style(ax, title: str = None, xlabel: str = None, ylabel: str = None):
+    """Apply consistent light styling to axis."""
     ax.set_facecolor(COLORS['background'])
     ax.figure.set_facecolor(COLORS['card'])
     
@@ -49,15 +49,20 @@ def apply_dark_style(ax, title: str = None, xlabel: str = None, ylabel: str = No
     ax.tick_params(colors=COLORS['secondary'], labelsize=9)
     
     # Grid styling
-    ax.grid(True, alpha=0.15, color=COLORS['grid'], linestyle='-', linewidth=0.5)
+    ax.grid(True, alpha=0.4, color=COLORS['grid'], linestyle='-', linewidth=0.5)
     ax.set_axisbelow(True)
     
     if title:
-        ax.set_title(title, fontsize=12, fontweight='600', color=COLORS['primary'], pad=12)
+        ax.set_title(title, fontsize=11, fontweight='600', color=COLORS['primary'], pad=12)
     if xlabel:
-        ax.set_xlabel(xlabel, fontsize=10, color=COLORS['secondary'], labelpad=8)
+        ax.set_xlabel(xlabel, fontsize=9, color=COLORS['secondary'], labelpad=8)
     if ylabel:
-        ax.set_ylabel(ylabel, fontsize=10, color=COLORS['secondary'], labelpad=8)
+        ax.set_ylabel(ylabel, fontsize=9, color=COLORS['secondary'], labelpad=8)
+
+# Keep backwards compatibility
+def apply_dark_style(ax, title: str = None, xlabel: str = None, ylabel: str = None):
+    """Apply consistent styling to axis (using light theme)."""
+    apply_light_style(ax, title, xlabel, ylabel)
 
 
 def plot_sector_comparison(
