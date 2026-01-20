@@ -22,7 +22,7 @@ data/synthetic/*.csv
 # Models
 models/checkpoints/*
 models/final/*.pkl
-models/final/*.joblib
+# models/final/*.joblib  # Allow joblib for deployment
 !models/checkpoints/.gitkeep
 !models/final/.gitkeep
 

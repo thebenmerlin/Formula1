@@ -73,14 +73,25 @@ class F1Predictor:
     F1 lap time predictor using frozen trained models.
     """
     
-    def __init__(self, model_path: str = "models/final/best_lap_predictor.joblib"):
+    def __init__(self, model_path: str = None):
         """
         Initialize predictor with frozen model.
         
         Args:
-            model_path: Path to saved model joblib
+            model_path: Path to saved model joblib (if None, uses default relative to project)
         """
-        self.model_path = Path(model_path)
+        # Get the project root directory (parent of streamlit_app)
+        script_dir = Path(__file__).parent
+        project_root = script_dir.parent
+        
+        if model_path is None:
+            self.model_path = project_root / "models" / "final" / "best_lap_predictor.joblib"
+        else:
+            self.model_path = Path(model_path)
+            # If path doesn't exist, try relative to project root
+            if not self.model_path.exists():
+                self.model_path = project_root / model_path
+        
         self.model = None
         self.model_name = None
         self.scaler = None
